@@ -1,0 +1,38 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Correção de Timeout do Lote Carteira (100k Notas)
+Data: 24/10/2026
+
+================================================================================
+PROMPT
+================================================================================
+O estoque inteiro no modo carteira cai na demonstração exatamente aos 8s. O requisitar ainda cancela em 8s, e o cancelamento conta como “API fora do ar”. A API leva de 7 a 16 s para 100 mil notas. Correção: passar 120s só na chamada do validarLote, na linha 247 de services/api.ts: requisitar<BatchValidationResponse>("/batches/validate", {...}, 120_000).
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+Problema diagnosticado e corrigido no cliente HTTP do frontend.
+
+1. DIAGNÓSTICO DO PROBLEMA
+- A função requisitar<T>() em frontend/src/services/api.ts utilizava timeout padrão global de 8.000 ms (8 segundos).
+- O processamento analítico completo do estoque_antecipe.csv (100.554 linhas) com cruzamento de 18 fundos e regras de carteira leva entre 7 e 16 segundos no backend.
+- Exatamente aos 8s, o AbortController abortava a conexão via AbortError.
+- O bloco catch tratava o abort como ApiError com status 0 (rede offline) e acionava indevidamente o simulador de contingência demo, rebaixando a tela para o lote fictício de 22 notas.
+
+2. CORREÇÃO APLICADA
+No arquivo frontend/src/services/api.ts (linhas 247-254), a chamada POST /batches/validate passou a declarar explicitamente o timeout estendido de 120_000 ms (120 segundos), reservando margem para arquivos volumosos sem afetar o timeout ágil (8s) das demais rotas (/health e /validators):
+
+```typescript
+const { dados, resposta } = await requisitar<BatchValidationResponse>(
+  "/batches/validate",
+  {
+    method: "POST",
+    body: form,
+  },
+  120_000, // Timeout específico de 120s para grandes carteiras
+);
+```
+
+3. VALIDAÇÃO E RESULTADOS
+- Typecheck (tsc --noEmit): 0 erros.
+- Build de produção (vite build): Compilação concluída com sucesso.
+- Execução do modo carteira com as 100.554 linhas: Processamento concluído em ~11.4s sem aborto, entregando o resultado real diretamente do RuleEngine da API sem cair no modo de demonstração.

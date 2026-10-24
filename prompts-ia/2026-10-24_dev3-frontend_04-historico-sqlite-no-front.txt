@@ -1,0 +1,23 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Front ajustado ao histórico em SQLite
+Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
+Área: Front-end / Design
+
+================================================================================
+PROMPT
+================================================================================
+Fizemos alterações, veja como está funcionando agora com o banco de dados e faça as devidas
+alterações para que funcione normalmente.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+- Nova tela Histórico: lotes validados (mais recente primeiro) com etiquetas de repetição pelo cache,
+  simulação do gestor e lote aberto agora; e a lista de mudanças nas regras.
+- Depois que o banco passou a guardar as notas: botão "Ver notas" abre um envio antigo com cada nota e
+  motivo, e a busca "Procurar uma nota" mostra em quais envios um número apareceu.
+- Achado: salvar regras falhava em silêncio porque o PUT exige a chave do gestor. A gaveta ganhou o campo
+  "Chave do gestor" (só na aba atual) e mostra erro claro. Depois de salvar, o lote é revalidado com as
+  regras do servidor (antes era registrado como "simulação").
+- A carteira de 100 mil notas passava dos 8 s de espera e caía no modo demo: tempo de espera aumentado.
+- Mesclado com as mudanças paralelas do Dev 2 (chave, taxa do /health, timeout de 120 s).

@@ -1,0 +1,27 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Matemática da Análise de perda (custo do prazo)
+Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
+Área: Matemática / Estatística
+
+================================================================================
+PROMPT
+================================================================================
+No menu lateral adicione a parte de deságio por prazo, algo como "análise de perda".
+Explique exatamente como vai funcionar. Depois: em vez de usar só notas de R$ 100, deixe o valor em
+aberto para a pessoa digitar e já ver o quanto vai perder.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+1. FÓRMULAS USADAS NA TELA
+- % recebido = 100 x (1 - taxa x dias / 30). Com 2% a.m., cada dia custa R$ 0,67 a cada R$ 1.000.
+- Valor digitado V: recebe = V x % recebido; perde = V - recebe.
+- "Mesmo limite, prazos diferentes": com o limite de um cliente esgotado, a nota de 10 dias rende
+  V x (taxa x 80 / 30) a mais que a de 90 dias no mesmo espaço. É isso que o otimizador explora.
+- Custo por faixa de prazo: soma do deságio / soma do valor de face das aprovadas em cada faixa.
+
+2. CONFERIDO
+- Lote 02: custo R$ 34,8 mil (0,76% do aprovado); faixas 0,66% (até 15 dias) e 5,48% (61-90).
+- R$ 10.000: 10 dias recebe R$ 9.933,33, 90 dias R$ 9.400,00, diferença R$ 533,33.
+- R$ 250.000 em 90 dias perde R$ 15.000 (6%); R$ 1.234.567 em 60 dias perde R$ 49.382,68 (4%).
+- Notas com menos de 5 dias ficam um pouco abaixo da reta pela cobrança mínima de 5 dias do fundo.

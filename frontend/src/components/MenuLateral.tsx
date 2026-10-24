@@ -54,7 +54,7 @@ export function MenuLateral(props: MenuLateralProps) {
   }, [aberto]);
 
   const conteudo = (
-    <div className="flex min-h-full flex-col gap-8 px-4 py-6">
+    <div className="flex min-h-full flex-col gap-5 px-4 py-5 [@media(min-height:900px)]:gap-7">
       <div className="px-2"><Marca /></div>
 
       <nav aria-label="Telas" className="flex flex-col gap-1">
@@ -63,7 +63,7 @@ export function MenuLateral(props: MenuLateralProps) {
           const bloqueado = id !== "envio" && id !== "historico" && !temResultado;
           return (
             <button key={id} type="button" disabled={bloqueado} onClick={() => ir(id)} aria-current={ativo ? "page" : undefined}
-              className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto ${
+              className={`group flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto ${
                 ativo ? "bg-creme text-floresta" : "text-creme/80 hover:bg-white/[0.06] hover:text-creme"
               }`}>
               <Icone className={`h-5 w-5 shrink-0 ${ativo ? "text-emerald-700" : "text-creme/60 group-hover:text-broto"}`} />
@@ -83,21 +83,21 @@ export function MenuLateral(props: MenuLateralProps) {
         })}
       </nav>
 
-      <div className="flex flex-col gap-1 border-t border-white/10 pt-6">
+      <div className="flex flex-col gap-0.5 border-t border-white/10 pt-4">
         <p className="eyebrow px-3 pb-1 text-creme/40">{onAbrirGestor ? "Gestor do fundo" : "Atalhos"}</p>
         {onAbrirGestor && (
           <button type="button" onClick={() => { onAbrirGestor(); setAberto(false); }}
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-creme/80 hover:bg-white/[0.06] hover:text-creme focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
+            className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-creme/80 hover:bg-white/[0.06] hover:text-creme focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
             <SlidersHorizontal className="h-5 w-5 text-creme/60" /> Regras do fundo
           </button>
         )}
         <button type="button" onClick={() => { onCarregarDemo(); setAberto(false); }} disabled={carregando}
-          className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-creme/80 hover:bg-white/[0.06] hover:text-creme disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
+          className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-creme/80 hover:bg-white/[0.06] hover:text-creme disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
           <Wand2 className="h-5 w-5 text-creme/60" /> Carregar lote demo
         </button>
       </div>
 
-      <div className="mt-auto rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-xs text-creme/70">
+      <div className="mt-auto rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs text-creme/70">
         <p className="flex items-center gap-2 font-semibold text-creme">
           <span className={`h-2 w-2 rounded-full ${fonte === "api" ? "bg-broto" : "bg-amber-400"}`} />
           {fonte === "api" ? "Análise ligada" : "Modo demonstração"}
@@ -105,7 +105,7 @@ export function MenuLateral(props: MenuLateralProps) {
         <p className="mt-1 truncate">{nomeLote ? `Lote: ${nomeLote}` : "Nenhum arquivo enviado ainda"}</p>
       </div>
 
-      <div className="-mt-4 flex items-center gap-3 rounded-2xl border border-white/10 px-4 py-3 text-xs">
+      <div className="-mt-3 flex items-center gap-3 rounded-2xl border border-white/10 px-4 py-2.5 text-xs">
         <span className="min-w-0 flex-1">
           <span className="block truncate font-semibold text-creme">{persona.nome}</span>
           <span className="block truncate text-creme/50">{persona.cargo}</span>

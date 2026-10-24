@@ -1,0 +1,29 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Taxa de 2% a.m. e conferência da matemática com o gabarito
+Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
+Área: Matemática / Estatística
+
+================================================================================
+PROMPT
+================================================================================
+Use a taxa de 2%, já que foi isso o que o fundo decidiu. Mandaram o arquivo JSON com os
+resultados esperados (resultado_esperado_100k.json): veja se a matemática está batendo.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+1. PRECIFICAÇÃO
+- Desconto simples, base 30 dias: deságio = valor nominal x taxa x dias / 30; líquido = nominal - deságio.
+- Taxa do JSON do fundo (2% a.m.) tem prioridade; 2,5% só se o JSON não tiver taxa.
+
+2. CONFERÊNCIA NAS 100.554 LINHAS
+- 98.181 linhas batem (97,6%). Tipo, valor mínimo, prazo máximo, nota vencida e CNPJ: 100%.
+- Concentração: 3.305 de 3.305 notas barradas, nem uma a mais. O gabarito confirma o teto de 10% por
+  fundo agrupado pela raiz do CNPJ (sem a raiz, as 1.169 notas da SERRALHERIA escapariam).
+- Prazo contado a partir da DATA_AQUISICAO de cada linha.
+- Única diferença: situação cadastral, 2.317 linhas de 87 sacados, porque o arquivo do repositório era
+  de demonstração. O Dev 1 passou a usar a lista derivada do gabarito e a conformidade chegou a 100%.
+
+3. ACHADOS PASSADOS AO DEV 1
+- docker-compose sem o mock da Receita: com "CNPJ não encontrado = recusado", a demo dava 0 aprovadas.
+- Regra fora do kit: prazo_minimo_cobranca_dias = 5 (nota com menos de 5 dias paga deságio de 5).
