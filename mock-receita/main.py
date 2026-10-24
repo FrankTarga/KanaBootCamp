@@ -2,8 +2,13 @@
 
 GET /api/cnpj/v1/{cnpj} -> 200 {"cnpj", "razao_social", "descricao_situacao_cadastral"} | 404
 
-Regra (a mesma do gabarito oficial): todo CNPJ com dígito verificador válido existe e está ATIVA, exceto os
-listados em backend/data/situacao_cadastral.json (os irregulares). CNPJ com DV inválido = 404 (não existe).
+Regra: todo CNPJ com dígito verificador válido existe e está ATIVA, exceto os que a fonte escolhida em
+SITUACAO_FONTE marca como não-ATIVA. CNPJ com DV inválido = 404 (não existe). As fontes se contradizem entre si,
+por isso são escolhíveis:
+- gabarito (padrão): backend/data/situacao_cadastral.json, os 87 irregulares do resultado_esperado_100k.json;
+- kanastra: backend/data/cnpj_situacao_mock.csv, publicado pela organização (DOC;SITUACAO_CADASTRAL);
+  CNPJ ausente do arquivo = ATIVA (decisão do time);
+- formato: nenhuma restrição, só a checagem do CNPJ (a regra vira "CNPJ válido de 14 dígitos").
 Os sacados do estoque trazem a razão social. Em produção, aponte RECEITA_API_URL para a BrasilAPI real.
 
 Rodar: backend/.venv/Scripts/python -m uvicorn main:app --app-dir mock-receita --port 8001
@@ -18,6 +23,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 
 DATA_DIR = Path(os.getenv("DATA_DIR", Path(__file__).resolve().parent.parent / "backend" / "data"))
+FONTES = {"gabarito": "situacao_cadastral.json", "kanastra": "cnpj_situacao_mock.csv", "formato": None}
+FONTE = os.getenv("SITUACAO_FONTE", "gabarito").strip().lower()
 
 
 def _limpar(doc: str) -> str:
@@ -38,22 +45,40 @@ def cnpj_valido(doc: str) -> bool:
     return base[12:] == doc[12:]
 
 
-def carregar_base() -> dict[str, dict[str, str]]:
+def carregar_sobrescritas(fonte: str) -> dict[str, str]:
+    """CNPJ -> situação da fonte escolhida. Falha no boot se a fonte for inválida ou o arquivo faltar."""
+    if fonte not in FONTES:
+        raise ValueError(f"SITUACAO_FONTE '{fonte}' inválida; use {', '.join(FONTES)}")
+    if FONTES[fonte] is None:
+        return {}
+    caminho = DATA_DIR / FONTES[fonte]
+    if fonte == "kanastra":
+        with open(caminho, encoding="utf-8-sig", newline="") as arquivo:
+            pares = [(l["DOC"], l["SITUACAO_CADASTRAL"]) for l in csv.DictReader(arquivo, delimiter=";")]
+    else:
+        pares = list(json.loads(caminho.read_text(encoding="utf-8-sig")).get("situacoes", {}).items())
+    return {_limpar(doc): str(situacao).strip().upper() for doc, situacao in pares if _limpar(doc)}
+
+
+def carregar_base(fonte: str = FONTE) -> dict[str, dict[str, str]]:
     base: dict[str, dict[str, str]] = {}
     with open(DATA_DIR / "estoque_antecipe.csv", encoding="utf-8-sig", newline="") as arquivo:
         for linha in csv.DictReader(arquivo, delimiter=";"):
             doc = _limpar(linha["DOC_SACADO"])
             base.setdefault(doc, {"cnpj": doc, "razao_social": linha["NOME_SACADO"].strip(), "descricao_situacao_cadastral": "ATIVA"})
-    sobrescritas = DATA_DIR / "situacao_cadastral.json"
-    if sobrescritas.exists():
-        for doc, situacao in json.loads(sobrescritas.read_text(encoding="utf-8-sig")).get("situacoes", {}).items():
-            doc = _limpar(doc)
-            base.setdefault(doc, {"cnpj": doc, "razao_social": ""})["descricao_situacao_cadastral"] = str(situacao).upper()
+    for doc, situacao in carregar_sobrescritas(fonte).items():
+        base.setdefault(doc, {"cnpj": doc, "razao_social": ""})["descricao_situacao_cadastral"] = situacao
     return base
 
 
 BASE = carregar_base()
 app = FastAPI(title="Mock Receita Federal (CNPJ)")
+
+
+@app.get("/health")
+def health() -> dict:
+    nao_ativos = sum(1 for r in BASE.values() if r["descricao_situacao_cadastral"] != "ATIVA")
+    return {"status": "ready", "fonte": FONTE, "cnpjs_nao_ativos": nao_ativos}
 
 
 @app.get("/api/cnpj/v1/{cnpj}")
