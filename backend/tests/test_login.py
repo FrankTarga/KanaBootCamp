@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import sqlite3
 
 import pytest
@@ -9,19 +11,29 @@ from fastapi.testclient import TestClient
 
 from app.historico import hash_senha, senha_confere
 from app.main import app
+from app.sessao import emitir_token, ler_token
 
 EMAIL = "banca@antecipe.com.br"
 SENHA = "senha-da-banca"
+SENHA_CEDENTE = "senha-da-empresa"
 
 
 @pytest.fixture()
 def client(pasta_dados, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(pasta_dados))
     monkeypatch.setenv("BANCA_SENHA", SENHA)
+    monkeypatch.setenv("CEDENTE_SENHA", SENHA_CEDENTE)
     monkeypatch.delenv("BANCA_EMAIL", raising=False)
+    monkeypatch.delenv("CEDENTE_EMAIL", raising=False)
     monkeypatch.delenv("RECEITA_API_URL", raising=False)
     with TestClient(app) as c:
         yield c
+
+
+def test_cedente_entra_com_o_proprio_perfil_e_nao_com_a_senha_do_gestor(client):
+    r = login(client, "empresa@antecipe.com.br", SENHA_CEDENTE)
+    assert r.status_code == 200 and r.json()["role"] == "CEDENTE"
+    assert login(client, "empresa@antecipe.com.br", SENHA).status_code == 401
 
 
 def login(c, email, senha):
@@ -31,7 +43,35 @@ def login(c, email, senha):
 def test_banca_entra_com_a_senha_do_env(client):
     r = login(client, "  Banca@Antecipe.com.br ", SENHA)
     assert r.status_code == 200
-    assert r.json() == {"email": EMAIL, "nome": "Banca avaliadora", "cargo": "Gestor do fundo", "role": "GESTOR"}
+    corpo = r.json()
+    assert corpo.pop("token")
+    assert corpo == {"email": EMAIL, "nome": "Banca avaliadora", "cargo": "Gestor do fundo", "role": "GESTOR"}
+
+
+def me(c, token):
+    return c.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+
+def test_token_do_login_abre_a_sessao(client):
+    token = login(client, EMAIL, SENHA).json()["token"]
+    r = me(client, token)
+    assert r.status_code == 200 and r.json()["role"] == "GESTOR" and r.json()["email"] == EMAIL
+
+
+def test_token_forjado_ou_ausente_da_401(client):
+    payload, _, assinatura = login(client, EMAIL, SENHA).json()["token"].partition(".")
+    forjado = base64.urlsafe_b64encode(json.dumps({"email": "x", "nome": "x", "cargo": "x", "role": "GESTOR", "exp": 9e9}).encode()).decode().rstrip("=")
+    for token in (f"{forjado}.{assinatura}", f"{payload}.assinatura-falsa", "lixo", ""):
+        r = me(client, token)
+        assert r.status_code == 401 and r.json()["error"]["code"] == "SESSAO_INVALIDA"
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_token_vencido_da_401():
+    usuario = {"email": EMAIL, "role": "GESTOR"}
+    assert ler_token(b"s", emitir_token(b"s", usuario, 60)) == usuario
+    assert ler_token(b"s", emitir_token(b"s", usuario, -1)) is None
+    assert ler_token(b"outro", emitir_token(b"s", usuario, 60)) is None
 
 
 @pytest.mark.parametrize("email,senha", [(EMAIL, "errada"), ("ninguem@x.com", SENHA)])

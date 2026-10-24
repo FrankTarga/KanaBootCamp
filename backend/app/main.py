@@ -38,6 +38,7 @@ from .api_schemas import (
 )
 from .br_utils import formatar_data_br, parse_data_br
 from .historico import Historico
+from .sessao import emitir_token, ler_token
 from .rule_engine import (
     CadastroSituacao,
     ErroArquivoLote,
@@ -73,6 +74,10 @@ class Settings:
     admin_api_key: str | None
     banca_email: str
     banca_senha: str | None
+    cedente_email: str
+    cedente_senha: str | None
+    sessao_segredo: bytes
+    sessao_validade_s: int
 
 
 def carregar_settings() -> Settings:
@@ -93,6 +98,11 @@ def carregar_settings() -> Settings:
         admin_api_key=os.getenv("ADMIN_API_KEY", "").strip() or None,
         banca_email=os.getenv("BANCA_EMAIL", "banca@antecipe.com.br").strip().lower(),
         banca_senha=os.getenv("BANCA_SENHA", "") or None,
+        cedente_email=os.getenv("CEDENTE_EMAIL", "empresa@antecipe.com.br").strip().lower(),
+        cedente_senha=os.getenv("CEDENTE_SENHA", "") or None,
+        # sem SESSAO_SEGREDO: segredo aleatório por processo (restart do backend desloga todo mundo)
+        sessao_segredo=os.getenv("SESSAO_SEGREDO", "").encode() or os.urandom(32),
+        sessao_validade_s=int(os.getenv("SESSAO_HORAS", "8")) * 3600,
     )
 
 
@@ -151,12 +161,14 @@ async def lifespan(app: FastAPI):
     )
     app.state.cache = CacheIdempotencia(settings.cache_idempotencia)
     app.state.historico = Historico(settings.historico_path)
-    if settings.banca_senha:
-        app.state.historico.salvar_usuario(
-            settings.banca_email, settings.banca_senha, "Banca avaliadora", "Gestor do fundo", "GESTOR"
-        )
-    else:
-        logger.warning("BANCA_SENHA não definida: usuário da banca não foi criado")
+    for variavel, email, senha, nome, cargo, role in (
+        ("BANCA_SENHA", settings.banca_email, settings.banca_senha, "Banca avaliadora", "Gestor do fundo", "GESTOR"),
+        ("CEDENTE_SENHA", settings.cedente_email, settings.cedente_senha, "Metalúrgica Silva LTDA", "Empresa cedente", "CEDENTE"),
+    ):
+        if senha:
+            app.state.historico.salvar_usuario(email, senha, nome, cargo, role)
+        else:
+            logger.warning("%s não definida: usuário %s não foi criado", variavel, role)
     if not settings.admin_api_key:
         logger.warning("ADMIN_API_KEY não definida: PUT /validators fica bloqueado")
     logger.info("situacao_cadastral fonte=%s", settings.receita_api_url or settings.cadastro_path)
@@ -380,7 +392,17 @@ def login(dados: LoginRequest, request: Request) -> UsuarioLogado:
     usuario = request.app.state.historico.autenticar(dados.email, dados.senha)
     if usuario is None:
         raise ErroEntrada("CREDENCIAIS_INVALIDAS", "E-mail ou senha incorretos.", 401)
-    return UsuarioLogado(**usuario)
+    settings: Settings = request.app.state.settings
+    return UsuarioLogado(**usuario, token=emitir_token(settings.sessao_segredo, usuario, settings.sessao_validade_s))
+
+
+@router.get("/auth/me", response_model=UsuarioLogado)
+def usuario_atual(request: Request, authorization: str | None = Header(None, description="Bearer <token do login>")) -> UsuarioLogado:
+    esquema, _, token = (authorization or "").partition(" ")
+    usuario = ler_token(request.app.state.settings.sessao_segredo, token) if esquema.lower() == "bearer" else None
+    if usuario is None:
+        raise ErroEntrada("SESSAO_INVALIDA", "Sessão ausente, inválida ou expirada; entre de novo.", 401)
+    return UsuarioLogado(**usuario, token=token)
 
 
 @router.post("/batches/validate", response_model=BatchValidationResponse)

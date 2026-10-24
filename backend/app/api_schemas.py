@@ -324,12 +324,13 @@ class LoginRequest(BaseModel):
 
 
 class UsuarioLogado(BaseModel):
-    # shortcut: sem token/sessão; o login só identifica o perfil e as rotas seguem abertas
-    # (o PUT /validators continua exigindo X-API-Key). Emitir token se as rotas precisarem de dono.
+    # shortcut: o token protege a sessão do portal (GET /auth/me), mas as rotas de dados seguem abertas
+    # para Swagger/curl da banca; o PUT /validators continua exigindo X-API-Key. Exigir o token nelas se virar produto.
     email: str
     nome: str
     cargo: str
     role: Literal["CEDENTE", "GESTOR"]
+    token: str
 
 
 # ---------------------------------------------------------------------------
