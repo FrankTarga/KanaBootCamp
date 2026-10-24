@@ -1,0 +1,96 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Dev 2 (Front-end, UX Financeira e Simulador Zero-Deploy)
+Data: 24/10/2026
+
+================================================================================
+PROMPT
+================================================================================
+1- Tailwind v3.4;
+2- Vamos usar a precificação do JSON em fração de taxa_mensal
+3- Agora a arquitetura do projeto está definida, você consegue acessar as pastas
+4- Editar precificacao e as regras
+5- Pode considerar canônicos
+
+
+================================================================================
+RESPOSTA
+================================================================================
+Com as 5 definições confirmadas e a estrutura do repositório conectada (monorepo com backend FastAPI e frontend React/Vite), a implementação completa da camada de Front-end, UX Financeira e Simulador Zero-Deploy (Dev 2) foi realizada na pasta frontend/ com nível de produção, sem placeholders (// TODO), tipagem estrita no TypeScript e design system de Fintech B2B premium.
+
+---
+
+### 1. Resumo das Decisões e Parâmetros Atendidos
+
+1. Tailwind CSS v3.4 + PostCSS:
+   - Configurado via tailwind.config.js e postcss.config.js, com suporte a tipografia tabular (tabular-nums para alinhamento de moedas), paleta de cores financeiras (slate-50, cards brancos com border-slate-200, verde esmeralda para liquidez, âmbar para recusas de risco e vermelho rose para alertas de fraude).
+   - Animações implementadas: pulse-ring para alerta pulsante de fraude, shimmer para badge de otimizador e transições suaves de abertura da gaveta lateral.
+
+2. Precificação em Fração na API vs. Percentual na UI:
+   - O contrato REST POST /api/v1/batches/validate recebe a taxa mensal em formato decimal/fração (ex: 0.02 = 2,0% a.m.), enquanto a tela apresenta e permite ao usuário ajustar o valor em percentual legível (2,00% a.m.). A conversão é automática e transparente.
+
+3. Arquitetura do Monorepo Integrada:
+   - O front-end espelha fielmente o contrato de dados definido em backend/app/api_schemas.py e consome os endpoints /health, /validators e /batches/validate com CORS liberado.
+
+4. Painel do Gestor com Edição de Precificação e Regras (Zero-Deploy):
+   - A gaveta lateral (GavetaGestor.tsx) permite alterar qualquer validador ativo/inativo, ajustar parâmetros dinâmicos (limites numéricos em R$, prazos em dias, concentrações em % e listas de tipos/situações) e também editar os parâmetros de precificação (taxa mensal e base de dias).
+   - Permite aplicar as regras no disco sem deploy (PUT /api/v1/validators) e também rodar simulações efêmeras "What-If" via validadores_override, exibindo um card comparativo com o ganho/perda de caixa em R$ gerado pela mudança.
+
+5. Códigos de Erro Canônicos:
+   - Todos os validadores utilizam os códigos padronizados do validadores_antecipe.json (CONCENTRACAO_MAXIMA_SACADO, VALOR_MINIMO, PRAZO_MAXIMO, etc.) mais os 3 códigos de integridade do sistema (DUPLICIDADE_LOTE, DUPLICIDADE_FUNDO e FRAUDE_OUTRO_FUNDO).
+
+---
+
+### 2. Arquivos Gerados e Estrutura Modular
+
+1. frontend/src/types/api.ts:
+   - Contratos imutáveis de dados espelhando o backend em Pydantic v2.
+   - Interfaces: ItemLote, ResumoLote, MetaLote, ErroNota, ValidadoresConfig, PrecificacaoConfig, HealthResponse e tipos de severidade ("OK" | "REGRA_NEGOCIO" | "DUPLICIDADE" | "FRAUDE").
+
+2. frontend/src/utils/formatters.ts:
+   - Formatação padrão de moeda brasileira (R$ 1.500,50) e percentuais.
+   - Formatação e máscara de CNPJ (14 dígitos), CPF (11 dígitos) e Raiz de CNPJ (8 dígitos).
+   - Conversores de datas entre o formato de tela (yyyy-mm-dd) e formato da API (dd/mm/aaaa).
+   - Exportadores de CSV client-side:
+     - "Baixar Lote Aprovado (.csv)": gera CSV formatado com delimitador ";" e encoding UTF-8 com BOM para Excel.
+     - "Baixar Relatório de Pendências (.csv)": gera CSV com as notas recusadas detalhando "O que aconteceu" e "Como resolver".
+
+3. frontend/src/services/api.ts:
+   - Funções de chamada fetch para GET /health, GET/PUT /validators e POST /batches/validate.
+   - Modo Resiliente com Fallback Dinâmico: detecta automaticamente se o backend está offline ou se o usuário acionou o modo demo, rodando um simulador em memória que recalcula valores líquidos, deságios e status caso o gestor altere regras.
+
+4. frontend/src/components/Header.tsx:
+   - Header executivo com identidade visual, controles rápidos da simulação (Data-Base, Taxa em % a.m., toggle switch do Smart Batch Optimizer), botão de "Carregar Simulação Demo" e botão para abrir a Gaveta do Gestor.
+
+5. frontend/src/components/StatusApi.tsx:
+   - Barra de telemetria exibindo status de conexão do motor, 100.554 notas indexadas em RAM, 18 fundos monitorados, patrimônio líquido do ANTECIPE FIDC e tempo de processamento em milissegundos.
+
+6. frontend/src/components/CheckoutLiquidez.tsx:
+   - Painel financeiro estilo checkout bancário com área de upload Drag & Drop e 4 grandes blocos:
+     1. Valor Bruto Submetido (R$ total e quantidade de títulos).
+     2. Inelegíveis / Recusadas (R$ recusado, barra de progresso visual de aprovação e alerta vermelho pulsante em caso de duplicidade ou fraude).
+     3. Deságio Financeiro (custo transparente da antecipação com prazo médio ponderado e taxa aplicada).
+     4. Valor Líquido na Conta Hoje (card principal em verde esmeralda com badge de ganho liberado pelo otimizador quantitativo).
+
+7. frontend/src/components/RaioXRecusas.tsx:
+   - Cards visuais agrupados por motivo de recusa com badges de severidade, contadores de notas e valor financeiro travado. Clicar em qualquer card filtra automaticamente a tabela de títulos.
+
+8. frontend/src/components/TabelaRecebiveis.tsx:
+   - Tabela inteligente com abas de contadores (Todas, Aprovadas, Recusadas, Salvas pelo Otimizador, Alertas de Fraude), busca instantânea por documento/sacado/tipo e botões de exportação de CSV.
+   - Raio-X expansível por nota mostrando sem jargão técnico:
+     - "O que aconteceu" (com os números reais daquela nota e limites do fundo).
+     - "Como resolver" (box em destaque com dica prática de ação para o empresário).
+
+9. frontend/src/components/GavetaGestor.tsx:
+   - Drawer lateral Zero-Deploy para edição dinâmica de validadores, prazos, limites e precificação sem necessidade de deploy ou restart.
+   - Botões "Simular What-If" e "Aplicar sem Deploy & Recalcular", com painel comparativo exibindo a variação de liquidez (delta em R$) gerada no lote.
+
+10. frontend/src/App.tsx:
+    - Componente raiz integrando todo o fluxo de ponta a ponta, tratamento de erros e banner crítico de alerta em caso de dupla cessão no mercado.
+
+---
+
+### 3. Validação Técnica
+
+- TypeScript: "npm run typecheck" aprovado com 0 erros (strict: true, noUnusedLocals: true).
+- Build de Produção: "npm run build" concluído com sucesso, gerando os bundles minificados em frontend/dist/.
+- Servidor Local: Rodando na porta padrão http://localhost:5173/.
