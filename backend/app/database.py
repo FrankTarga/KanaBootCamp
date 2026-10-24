@@ -73,6 +73,8 @@ def _migrar_schema(conn: sqlite3.Connection) -> None:
     if "documento_id" not in colunas_titulos:
         conn.execute("ALTER TABLE titulos_adquiridos ADD COLUMN documento_id INTEGER REFERENCES documentos_notas_fiscais(id);")
 
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_titulos_chave ON titulos_adquiridos(chave_acesso);")
+
 
 def init_db():
     """Inicializa o schema relacional ACID e os índices B-Tree."""
@@ -144,7 +146,6 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_titulos_sacado ON titulos_adquiridos(doc_sacado);
             CREATE INDEX IF NOT EXISTS idx_titulos_cedente ON titulos_adquiridos(doc_cedente);
-            CREATE INDEX IF NOT EXISTS idx_titulos_chave ON titulos_adquiridos(chave_acesso);
 
             CREATE TABLE IF NOT EXISTS auditoria_regras (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

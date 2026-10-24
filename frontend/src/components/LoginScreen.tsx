@@ -9,8 +9,20 @@ export type Persona = Sessao;
 
 // E-mails padrão do backend (CEDENTE_EMAIL / BANCA_EMAIL); escolher o perfil só preenche o e-mail, a senha é sempre exigida
 const PERFIS = {
-  CEDENTE: { titulo: "Empresa (cedente)", dica: "Enviar notas e ver quanto recebe", email: "empresa@antecipe.com.br", Icone: Building2 },
-  GESTOR: { titulo: "Gestor do fundo", dica: "Editar as regras e simular o impacto", email: "banca@antecipe.com.br", Icone: SlidersHorizontal },
+  CEDENTE: {
+    titulo: "Empresa (cedente)",
+    dica: "Enviar notas e ver quanto recebe",
+    email: "empresa@antecipe.com.br",
+    senhaOficial: "Empresa-Kana-7364",
+    Icone: Building2,
+  },
+  GESTOR: {
+    titulo: "Gestor do fundo",
+    dica: "Editar as regras e simular o impacto",
+    email: "banca@antecipe.com.br",
+    senhaOficial: "Gestor-Kana-4821",
+    Icone: SlidersHorizontal,
+  },
 } as const;
 
 export function LoginScreen({ onLogin }: { onLogin: (p: Persona) => void }) {
@@ -24,6 +36,13 @@ export function LoginScreen({ onLogin }: { onLogin: (p: Persona) => void }) {
     setPerfil(role);
     setEmail(PERFIS[role].email);
     setSenha("");
+    setErro(null);
+  };
+
+  const preencherRapido = (role: Persona["role"]) => {
+    setPerfil(role);
+    setEmail(PERFIS[role].email);
+    setSenha(PERFIS[role].senhaOficial);
     setErro(null);
   };
 
@@ -85,6 +104,30 @@ export function LoginScreen({ onLogin }: { onLogin: (p: Persona) => void }) {
               );
             })}
           </fieldset>
+
+          {/* Atalhos de Avaliação para a Banca (RFC-002) */}
+          <div className="flex flex-col gap-2 rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-emerald-900">Atalhos de Avaliação (Banca):</span>
+              <span className="text-[10px] text-emerald-700">Preenchimento em 1 clique</span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => preencherRapido("GESTOR")}
+                className="flex-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-800 shadow-sm hover:bg-emerald-100 transition-colors"
+              >
+                Preencher Gestor
+              </button>
+              <button
+                type="button"
+                onClick={() => preencherRapido("CEDENTE")}
+                className="flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-100 transition-colors"
+              >
+                Preencher Cedente
+              </button>
+            </div>
+          </div>
 
           <form onSubmit={enviar} className="flex flex-col gap-3">
             {erro && (
