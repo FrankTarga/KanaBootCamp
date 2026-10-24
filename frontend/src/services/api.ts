@@ -428,7 +428,7 @@ export function simularLoteLocal(opcoes: OpcoesValidacao = {}): BatchValidationR
     }))
     .sort((a, b) => b.quantidade - a.quantidade || b.valor_impactado - a.valor_impactado);
 
-  const ganhoOtimizador = otimizar ? (base.meta.ganho_otimizador_reais > 0 ? base.meta.ganho_otimizador_reais : 33200.0) : 0;
+  const ganhoOtimizador = otimizar ? base.meta.ganho_otimizador_reais : 0;
 
   return {
     meta: {
@@ -439,7 +439,7 @@ export function simularLoteLocal(opcoes: OpcoesValidacao = {}): BatchValidationR
       otimizador_ativo: otimizar,
       valor_liquido_sem_otimizador: Math.round((liquidoTotal - ganhoOtimizador) * 100) / 100,
       ganho_otimizador_reais: ganhoOtimizador,
-      qtd_notas_salvas_otimizador: otimizar ? Math.max(qtdSalvas, 2) : 0,
+      qtd_notas_salvas_otimizador: otimizar ? qtdSalvas : 0,
     },
     resumo: {
       total_notas: itensAtualizados.length,
