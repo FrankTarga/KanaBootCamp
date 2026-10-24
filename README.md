@@ -86,10 +86,11 @@ Testes do back-end: `cd backend; .\.venv\Scripts\python -m pytest tests -q`
 | GET | `/api/v1/validators` | JSON de regras atual |
 | PUT | `/api/v1/validators` | troca as regras em memória e salva em disco (sem restart); exige header `X-API-Key` = env `ADMIN_API_KEY` (401 sem a chave, 403 se a env não estiver definida) |
 | POST | `/api/v1/portfolio/validate` | `multipart/form-data`: `file` (carteira/estoque inteiro). Saída no formato do gabarito oficial; ver *Modo carteira* |
+| GET | `/api/v1/historico/*` | exigem `Authorization: Bearer <token do /auth/login>` (401 sem sessão). Cedente vê só os lotes que enviou; gestor vê todos |
 | GET | `/api/v1/historico/lotes?limite=50&offset=0` | histórico de validações (SQLite): chave completa, parâmetros, totais e se veio do cache. Paginado, mais recente primeiro |
 | GET | `/api/v1/historico/lotes/{id}?limite=500&offset=0` | um lote antigo com suas notas e os motivos de recusa, como a empresa recebeu (só no modo lote; na carteira, só o resumo) |
 | GET | `/api/v1/historico/notas?nu_documento=351156` | em quais lotes um número de nota apareceu e o que aconteceu com ela (zeros à esquerda ignorados) |
-| GET | `/api/v1/historico/regras?limite=50&offset=0` | auditoria: cada `PUT /validators` aceito, com versão, data e o JSON das regras |
+| GET | `/api/v1/historico/regras?limite=50&offset=0` | auditoria: cada `PUT /validators` aceito, com versão, data e o JSON das regras. Só gestor (403 para cedente) |
 | POST | `/api/v1/batches/validate` | `multipart/form-data`: `file`, `data_base?`, `taxa_mensal?`, `otimizar_lote?`, `validadores_override?`, `modo?` (`lote`, o padrão, ou `carteira`) |
 
 Os tipos exatos estão em [`frontend/src/types/api.ts`](frontend/src/types/api.ts), espelho de [`backend/app/api_schemas.py`](backend/app/api_schemas.py). Mudou um, muda o outro no mesmo commit.

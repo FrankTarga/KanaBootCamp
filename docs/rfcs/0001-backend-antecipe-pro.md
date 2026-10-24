@@ -217,7 +217,9 @@ O estoque continua em RAM para leitura O(1). O `sqlite3` da biblioteca padrão g
 Decisões:
 - **Não guarda o payload da resposta** (uma carteira de 100k daria ~65 MB por linha).
 - **Não substitui o cache de idempotência**, que continua em memória. Uma idempotência só pelo hash do arquivo devolveria um resultado antigo depois de uma mudança de regra.
-- Uma conexão por operação, segura com as threads do FastAPI.
+- Uma conexão por operação, segura com as threads do FastAPI. Modo WAL: ler o histórico não espera a gravação de um lote grande.
+- **Esquema versionado** por `PRAGMA user_version`: cada passo de migração roda uma vez, em ordem e numa transação (ou entra inteiro ou não entra). Bancos já existentes (local, VPS) ganham as colunas novas sem perder dados. Mudança de esquema = novo passo no fim da lista, nunca editar um já aplicado.
+- **Lote e mudança de regra ligados ao usuário** (`usuario_id`, vindo do token Bearer; NULL quando a chamada vem sem login, como Swagger/curl). As rotas `/historico/*` exigem login: cedente vê só os próprios lotes e notas (lote de outro dá 404, sem revelar que existe), gestor vê tudo, e `/historico/regras` é só do gestor. Uma repetição do cache entra no histórico de quem reenviou.
 - Se o SQLite falhar, a validação segue e o erro vai para o log.
 - Leitura paginada em `GET /historico/lotes`, `GET /historico/lotes/{id}` (notas), `GET /historico/notas?nu_documento=` (busca com a mesma normalização da chave canônica, por índice) e `GET /historico/regras`.
 - **Carteira só guarda o resumo:** o arquivo é o próprio estoque (100k notas, que já estão em disco), e guardar as notas dele daria ~70 MB por envio.
