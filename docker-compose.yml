@@ -1,4 +1,19 @@
 services:
+  mock-receita:
+    build: ./mock-receita
+    container_name: antecipe-mock-receita
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ./backend/data:/data:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/docs', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    restart: unless-stopped
+
   backend:
     build: ./backend
     container_name: antecipe-backend
@@ -7,15 +22,20 @@ services:
     environment:
       DATA_DIR: /app/data
       LOG_LEVEL: INFO
+      RECEITA_API_URL: http://mock-receita:8001/api/cnpj/v1
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?defina ADMIN_API_KEY no arquivo .env (veja .env.example)}
       # DATA_BASE_PADRAO: "22/10/2026"  # opcional: força a data-base (senão = D+1 útil da maior DATA_AQUISICAO)
     volumes:
       # Diretório inteiro montado: o PUT /validators grava com os.replace e persiste no host.
       - ./backend/data:/app/data
+    depends_on:
+      mock-receita:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3)"]
       interval: 15s
       timeout: 5s
-      start_period: 20s
+      start_period: 30s
       retries: 3
     restart: unless-stopped
 
