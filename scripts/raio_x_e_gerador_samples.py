@@ -30,7 +30,7 @@ BACKEND_DIR = PROJECT_ROOT / "backend"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.quant_analytics import formatar_brl, formatar_data_br, formatar_percentual, parse_data_br  # noqa: E402
+from app.br_utils import formatar_brl, formatar_data_br, formatar_percentual, parse_data_br  # noqa: E402
 from app.stock_index import (  # noqa: E402
     AGRUPAMENTO_RAIZ,
     StockIndex,
