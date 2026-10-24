@@ -50,6 +50,44 @@ npm run dev
 
 Testes do back-end: `cd backend; .\.venv\Scripts\python -m pytest tests -q`
 
+## Testes automatizados e simulador de stress
+
+**188 testes com pytest, todos passando** (`cd backend; python -m pytest tests -q`). Os cinco cenários de negócio que mais pesam na avaliação têm um arquivo próprio, [`backend/tests/test_cenarios_banca.py`](backend/tests/test_cenarios_banca.py), um teste por cenário:
+
+| teste | o que garante |
+|---|---|
+| `test_calculo_desagio_data_base_quinta_feira` | data-base = D+1 útil da maior aquisição (quarta 21/10 → quinta 22/10/2026); R$ 10.000 em 30 dias a 2% a.m. = R$ 200 de deságio e R$ 9.800 líquidos |
+| `test_concentracao_acumulativa_intra_lote` | o teto de 10% soma o estoque **e** o que já foi aprovado no próprio lote (Shadow Ledger); cada nota sozinha passaria, a terceira estoura; o estoque em memória não muda |
+| `test_radar_antifraude_outro_fundo` | título idêntico a um da carteira de outro fundo vira FRAUDE (dupla cessão), mesmo com o valor escrito de outro jeito, e não entra no dinheiro do lote |
+| `test_otimizador_lote_aumenta_valor_liquido` | com o limite do cliente apertado, o otimizador troca a nota longa por duas curtas: mais notas aprovadas, mais líquido, resposta na ordem do CSV |
+| `test_hot_reload_validadores_sem_deploy` | o gestor desliga uma regra com o sistema no ar: a validação seguinte já usa a regra nova, a versão sobe e o JSON em disco é atualizado |
+
+```
+$ python -m pytest tests/test_cenarios_banca.py -v
+collecting ... collected 5 items
+tests/test_cenarios_banca.py::test_calculo_desagio_data_base_quinta_feira PASSED [ 20%]
+tests/test_cenarios_banca.py::test_concentracao_acumulativa_intra_lote PASSED [ 40%]
+tests/test_cenarios_banca.py::test_radar_antifraude_outro_fundo PASSED   [ 60%]
+tests/test_cenarios_banca.py::test_otimizador_lote_aumenta_valor_liquido PASSED [ 80%]
+tests/test_cenarios_banca.py::test_hot_reload_validadores_sem_deploy PASSED [100%]
+============================== 5 passed in 0.03s ===============================
+```
+
+**Simulador de stress** ([`scripts/simulador_stress.py`](scripts/simulador_stress.py)): gera lotes sintéticos com clientes reais do estoque e mede o próprio motor (sem HTTP), com a mediana de 3 execuções por tamanho:
+
+```
+$ python scripts/simulador_stress.py
+Estoque carregado: 100.554 linhas em 0,33 s
+
+   notas | tempo (mediana) |   notas/s | aprovadas | ganho otimizador
+----------------------------------------------------------------------
+   1.000 |          0,06 s |    16.214 |     59,9% | R$          0,00
+   5.000 |          0,29 s |    17.206 |     62,3% | R$    151.662,27
+  10.000 |          0,68 s |    14.780 |     62,3% | R$    107.457,97
+
+Carteira inteira (modo carteira): 100.554 notas em 4,51 s (22.298 notas/s)
+```
+
 ## Estrutura
 
 ```
@@ -216,7 +254,7 @@ Os 3 CSVs em `samples/` já estão ajustados aos números do "Roteiro de demo" a
 
 **O que construímos.** Um portal de antecipação para o ANTECIPE FIDC. A empresa envia o CSV e vê, para cada nota, se foi aprovada ou recusada, o motivo explicado em português simples com o que fazer, o valor líquido de cada nota e o total a receber. O gestor muda as regras pela tela ou pela API sem deploy e simula o efeito antes de salvar. A mesma validação existe pela tela e pela API, e o modo carteira reproduz o gabarito oficial nas 100.554 linhas.
 
-**Tecnologias.** Back-end em Python 3.12 + FastAPI + Pydantic v2, com o estoque indexado em memória para leitura O(1) e SQLite (biblioteca padrão) só para o histórico de lotes e a auditoria das regras. Front-end em React + Vite + Tailwind + TypeScript. Mock da Receita em FastAPI no formato da BrasilAPI. Testes com pytest (141 testes, 98% de cobertura de branches). Tudo sobe com Docker Compose.
+**Tecnologias.** Back-end em Python 3.12 + FastAPI + Pydantic v2, com o estoque indexado em memória para leitura O(1) e SQLite (biblioteca padrão) só para o histórico de lotes e a auditoria das regras. Front-end em React + Vite + Tailwind + TypeScript. Mock da Receita em FastAPI no formato da BrasilAPI. Testes com pytest (188 testes; os 5 cenários principais em `test_cenarios_banca.py`) e simulador de stress. Tudo sobe com Docker Compose.
 
 **Principais decisões.**
 - Regras 100% lidas do `validadores_antecipe.json`, validadas no `PUT` e trocadas em memória sem reiniciar.
