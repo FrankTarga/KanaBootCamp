@@ -2,8 +2,13 @@ import type {
   BatchValidationResponse,
   ErroApiCorpo,
   FonteDados,
+  DetalheLoteHistorico,
   HealthResponse,
+  HistoricoLote,
   ItemLote,
+  MudancaRegras,
+  OcorrenciaNota,
+  PaginaHistorico,
   OpcoesValidacao,
   ResultadoProcessamento,
   ValidadoresConfig,
@@ -194,6 +199,10 @@ export async function obterValidadores(): Promise<{ dados: ValidadoresConfig; fo
   }
 }
 
+function lerChaveDaSessao(): string | null {
+  try { return sessionStorage.getItem("admin_api_key"); } catch { return null; } // armazenamento bloqueado
+}
+
 export async function salvarValidadores(
   config: ValidadoresConfig,
   apiKey?: string,
@@ -205,7 +214,7 @@ export async function salvarValidadores(
 
   const chave =
     apiKey ||
-    (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("admin_api_key") : null) ||
+    lerChaveDaSessao() ||
     (import.meta.env.VITE_ADMIN_API_KEY as string | undefined);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -230,6 +239,28 @@ export async function salvarValidadores(
     }
     throw e;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Histórico (banco SQLite do backend). Sem fallback: offline, a tela avisa em vez de inventar dados.
+// ---------------------------------------------------------------------------
+export async function listarHistoricoLotes(limite = 50, offset = 0): Promise<PaginaHistorico<HistoricoLote>> {
+  return (await requisitar<PaginaHistorico<HistoricoLote>>(`/historico/lotes?limite=${limite}&offset=${offset}`)).dados;
+}
+
+export async function listarHistoricoRegras(limite = 50, offset = 0): Promise<PaginaHistorico<MudancaRegras>> {
+  return (await requisitar<PaginaHistorico<MudancaRegras>>(`/historico/regras?limite=${limite}&offset=${offset}`)).dados;
+}
+
+/** Notas e motivos de um lote antigo (até 10 mil por página, limite do backend). */
+export async function obterLoteHistorico(loteId: number, limite = 10_000, offset = 0): Promise<DetalheLoteHistorico> {
+  return (await requisitar<DetalheLoteHistorico>(`/historico/lotes/${loteId}?limite=${limite}&offset=${offset}`, undefined, 30_000)).dados;
+}
+
+/** Em quais lotes um número de nota apareceu (zeros à esquerda não importam). */
+export async function buscarNotaHistorico(nuDocumento: string, limite = 50, offset = 0): Promise<PaginaHistorico<OcorrenciaNota>> {
+  const q = encodeURIComponent(nuDocumento.trim());
+  return (await requisitar<PaginaHistorico<OcorrenciaNota>>(`/historico/notas?nu_documento=${q}&limite=${limite}&offset=${offset}`)).dados;
 }
 
 /**

@@ -130,7 +130,7 @@ export function TelaEnvio(p: TelaEnvioProps) {
                 <span className="flex min-w-0 items-center gap-2">
                   {p.motorDesligado ? <X className="h-4 w-4 shrink-0 text-rose-300" /> : <CheckCircle2 className="h-4 w-4 shrink-0 text-broto" />}
                   <span className="truncate">
-                    {p.motorDesligado ? `Motor desligado: ${p.loteAtual.nome} não foi analisado`
+                    {p.motorDesligado ? `Análise desligada: ${p.loteAtual.nome} não foi analisado`
                       : p.loteAtual.qtdArquivos > 1 ? `${p.loteAtual.qtdArquivos} arquivos analisados` : `${p.loteAtual.nome} analisado`}
                   </span>
                 </span>

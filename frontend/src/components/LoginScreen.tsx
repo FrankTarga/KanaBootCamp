@@ -45,14 +45,14 @@ export function LoginScreen({ onLogin }: { onLogin: (p: Persona) => void }) {
   );
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-creme p-4 font-sans">
+    <section aria-label="Entrar no portal" className="flex min-h-screen items-center justify-center bg-creme p-4 font-sans">
       <div className="grid w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-elevated md:grid-cols-2">
         <div className="flex flex-col justify-between gap-8 bg-floresta-escura p-8">
           <Marca />
           <div>
             <h1 className="font-display text-3xl font-semibold tracking-tight text-creme">Receba hoje o que você só receberia daqui a meses.</h1>
             <p className="mt-3 text-sm leading-relaxed text-creme/70">
-              Antecipação de recebíveis com validação nota a nota, valor líquido na hora e regras do fundo editáveis sem deploy.
+              Cada nota conferida nas regras do fundo, o valor líquido na hora e regras que o gestor muda sem parar o sistema.
             </p>
           </div>
           <p className="text-xs text-creme/50">Ambiente de demonstração</p>
@@ -96,6 +96,6 @@ export function LoginScreen({ onLogin }: { onLogin: (p: Persona) => void }) {
           </form>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

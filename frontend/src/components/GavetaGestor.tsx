@@ -3,7 +3,7 @@ import {
   Check,
   Eye,
   EyeOff,
-  Key,
+  KeyRound,
   Play,
   Save,
   Sliders,
@@ -12,32 +12,33 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { obterValidadores } from "../services/api";
+import { ApiError, obterValidadores } from "../services/api";
 import type {
   ComparativoRegras,
   ValidadoresConfig,
 } from "../types/api";
 import { formatarMoeda } from "../utils/formatters";
+import { NOMES_REGRAS, OPCOES_PARAMETRO, nomeRegra } from "../utils/nomes";
 
 interface GavetaGestorProps {
   aberto: boolean;
   onFechar: () => void;
-  onAplicarRegras: (config: ValidadoresConfig, chave?: string) => Promise<void>;
+  onAplicarRegras: (config: ValidadoresConfig, chaveGestor: string) => Promise<void>;
   onSimularWhatIf: (config: ValidadoresConfig) => Promise<void>;
   carregando: boolean;
   comparativo: ComparativoRegras | null;
 }
 
-// Rótulos amigáveis para nomes técnicos de parâmetros
-const ROTULOS_PARAMETROS: Record<string, { label: string; prefix?: string; suffix?: string; type: "number" | "text" | "list" }> = {
-  valor_minimo: { label: "Valor Mínimo por Título", prefix: "R$", type: "number" },
-  valor_maximo: { label: "Valor Máximo por Título", prefix: "R$", type: "number" },
-  prazo_minimo_dias: { label: "Prazo Mínimo", suffix: "dias", type: "number" },
-  prazo_maximo_dias: { label: "Prazo Máximo", suffix: "dias", type: "number" },
-  percentual_maximo: { label: "Concentração Máxima", suffix: "%", type: "number" },
-  agrupamento: { label: "Agrupamento de Risco", type: "text" },
-  tipos_aceitos: { label: "Tipos de Título Aceitos (separados por vírgula)", type: "list" },
-  situacoes_aceitas: { label: "Situações Cadastrais Aceitas (separadas por vírgula)", type: "list" },
+// Rótulos em português comum para os parâmetros do JSON do fundo
+const ROTULOS_PARAMETROS: Record<string, { label: string; prefix?: string; suffix?: string; type: "number" | "text" | "list" | "escolha" }> = {
+  valor_minimo: { label: "Valor mínimo", prefix: "R$", type: "number" },
+  valor_maximo: { label: "Valor máximo", prefix: "R$", type: "number" },
+  prazo_minimo_dias: { label: "Prazo mínimo", suffix: "dias", type: "number" },
+  prazo_maximo_dias: { label: "Prazo máximo", suffix: "dias", type: "number" },
+  percentual_maximo: { label: "Parte máxima do fundo", suffix: "%", type: "number" },
+  agrupamento: { label: "Como somar o cliente", type: "escolha" },
+  tipos_aceitos: { label: "Tipos aceitos", type: "list" },
+  situacoes_aceitas: { label: "Situações aceitas", type: "list" },
 };
 
 export function GavetaGestor({
@@ -51,39 +52,36 @@ export function GavetaGestor({
   const [config, setConfig] = useState<ValidadoresConfig | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [sucesso, setSucesso] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-  const [chaveAdmin, setChaveAdmin] = useState<string>(() => {
-    try {
-      return typeof sessionStorage !== "undefined" ? sessionStorage.getItem("admin_api_key") ?? "" : "";
-    } catch {
-      return "";
-    }
-  });
+  const [erroSalvar, setErroSalvar] = useState<string | null>(null);
   const [mostrarChave, setMostrarChave] = useState(false);
-
-  const handleChaveChange = (valor: string) => {
-    setChaveAdmin(valor);
-    try {
-      if (typeof sessionStorage !== "undefined") {
-        if (valor.trim()) {
-          sessionStorage.setItem("admin_api_key", valor.trim());
-        } else {
-          sessionStorage.removeItem("admin_api_key");
-        }
-      }
-    } catch {
-      // ignora restricoes de storage
-    }
+  // chave do gestor (ADMIN_API_KEY do servidor): só nesta aba, some ao fechar o navegador
+  const [chaveGestor, setChaveGestor] = useState<string>(() => {
+    try { return sessionStorage.getItem("admin_api_key") ?? ""; } catch { return ""; }
+  });
+  const mudarChave = (v: string) => {
+    setChaveGestor(v);
+    setErroSalvar(null);
+    try { if (v.trim()) sessionStorage.setItem("admin_api_key", v.trim()); else sessionStorage.removeItem("admin_api_key"); } catch { /* armazenamento bloqueado: segue só em memória */ }
   };
 
   useEffect(() => {
     if (aberto) {
-      setErro(null);
+      setErroSalvar(null);
       obterValidadores().then((res) => {
         setConfig(JSON.parse(JSON.stringify(res.dados)));
       });
     }
   }, [aberto]);
+
+  // com a gaveta aberta, a página de trás não rola e Esc fecha
+  useEffect(() => {
+    if (!aberto) return;
+    const anterior = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === "Escape") onFechar(); };
+    window.addEventListener("keydown", aoTeclar);
+    return () => { document.body.style.overflow = anterior; window.removeEventListener("keydown", aoTeclar); };
+  }, [aberto, onFechar]);
 
   if (!aberto || !config) return null;
 
@@ -100,7 +98,7 @@ export function GavetaGestor({
     validadorIdx: number,
     chave: string,
     valor: string,
-    tipo: "number" | "text" | "list"
+    tipo: "number" | "text" | "list" | "escolha"
   ) => {
     setConfig((prev) => {
       if (!prev) return prev;
@@ -123,7 +121,17 @@ export function GavetaGestor({
     });
   };
 
-  const atualizarPrecificacao = (campo: "taxa_mensal_percentual" | "base_dias", valor: number) => {
+  const alternarOpcao = (validadorIdx: number, chave: string, opcao: string) => {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      const novo = JSON.parse(JSON.stringify(prev)) as ValidadoresConfig;
+      const atual = (novo.validadores[validadorIdx].parametros[chave] as string[] | null) ?? [];
+      novo.validadores[validadorIdx].parametros[chave] = atual.includes(opcao) ? atual.filter((v) => v !== opcao) : [...atual, opcao];
+      return novo;
+    });
+  };
+
+  const atualizarPrecificacao = (campo: "taxa_mensal_percentual" | "base_dias" | "prazo_minimo_cobranca_dias", valor: number) => {
     setConfig((prev) => {
       if (!prev || !prev.precificacao) return prev;
       return {
@@ -139,13 +147,15 @@ export function GavetaGestor({
   const handleSalvarEPermutar = async () => {
     if (!config) return;
     setSalvando(true);
-    setErro(null);
+    setErroSalvar(null);
     try {
-      await onAplicarRegras(config, chaveAdmin.trim() || undefined);
+      await onAplicarRegras(config, chaveGestor.trim());
       setSucesso(true);
       setTimeout(() => setSucesso(false), 3000);
-    } catch (err: unknown) {
-      setErro(err instanceof Error ? err.message : "Erro ao salvar regras.");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) setErroSalvar("Chave do gestor errada ou em branco. As regras não foram salvas.");
+      else if (e instanceof ApiError && e.status === 403) setErroSalvar("O servidor ainda não tem uma chave do gestor configurada, então não aceita salvar. Você pode usar \"Testar sem salvar\".");
+      else setErroSalvar(e instanceof Error ? e.message : "Não foi possível salvar as regras.");
     } finally {
       setSalvando(false);
     }
@@ -162,80 +172,53 @@ export function GavetaGestor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden">
-      {/* Backdrop */}
-      <div
-        onClick={onFechar}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity animate-fade-in"
-      />
+    <div className="fixed inset-0 z-50 overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="gaveta-titulo">
+      <div onClick={onFechar} className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs animate-fade-in" />
 
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-xl bg-white shadow-2xl flex flex-col animate-slide-in-right">
-          {/* Topo do Drawer */}
-          <div className="p-6 border-b border-slate-200 bg-slate-900 text-white flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+      <div className="fixed inset-y-0 right-0 flex max-w-full sm:pl-10">
+        <div className="flex h-full w-screen max-w-xl flex-col bg-creme-claro shadow-2xl animate-slide-in-right">
+          <div className="flex items-center justify-between gap-3 bg-floresta p-5 text-creme sm:p-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-broto/30 bg-broto/15 text-broto">
                 <Sliders className="h-5 w-5" />
               </div>
-              <div>
-                <h2 className="text-base font-bold">Motor Zero-Deploy</h2>
-                <p className="text-xs text-slate-400">
-                  Ajuste políticas de risco do {config.fundo.nome} sem reiniciar a aplicação
-                </p>
+              <div className="min-w-0">
+                <h2 id="gaveta-titulo" className="font-display text-lg font-semibold">Regras do fundo</h2>
+                <p className="text-xs text-creme/70">Mude o que o {config.fundo.nome} aceita. Vale na hora, sem reiniciar nada.</p>
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={onFechar}
-              className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors"
-            >
+            <button type="button" onClick={onFechar} aria-label="Fechar" className="rounded-lg p-2 text-creme/70 hover:bg-white/10 hover:text-creme">
               <X className="h-5 w-5" />
             </button>
           </div>
 
-          {/* Banner de Comparativo What-If se houver mudança recente */}
           {comparativo && (
-            <div className="bg-emerald-50 border-b border-emerald-200 p-4">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-bold text-emerald-950 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-                  Impacto da Nova Configuração no Lote:
+            <div className="border-b border-emerald-200 bg-emerald-50 p-4">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-950">
+                  <Sparkles className="h-3.5 w-3.5 text-emerald-600" /> Efeito da mudança neste lote
                 </span>
-                <span className="text-[10px] font-semibold bg-emerald-200/80 text-emerald-900 px-2 py-0.5 rounded-full">
-                  {comparativo.tipo === "aplicado" ? "Persistido em Disco" : "Simulação What-If"}
+                <span className="rounded-full bg-emerald-200/80 px-2 py-0.5 text-[11px] font-semibold text-emerald-900">
+                  {comparativo.tipo === "aplicado" ? "Regras salvas" : "Só um teste"}
                 </span>
               </div>
-
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <div className="bg-white rounded-lg p-2.5 border border-emerald-200">
-                  <span className="text-[11px] text-slate-500 block">Variação de Caixa (Líquido):</span>
-                  <div className="flex items-center gap-1 font-bold money text-sm">
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-emerald-200 bg-white p-2.5">
+                  <span className="block text-[11px] text-slate-500">Dinheiro liberado</span>
+                  <div className="flex items-center gap-1 text-sm font-bold tabular-nums">
                     {comparativo.liquidoDepois >= comparativo.liquidoAntes ? (
-                      <>
-                        <TrendingUp className="h-4 w-4 text-emerald-600" />
-                        <span className="text-emerald-700">
-                          + {formatarMoeda(comparativo.liquidoDepois - comparativo.liquidoAntes)}
-                        </span>
-                      </>
+                      <><TrendingUp className="h-4 w-4 text-emerald-600" /><span className="text-emerald-700">+ {formatarMoeda(comparativo.liquidoDepois - comparativo.liquidoAntes)}</span></>
                     ) : (
-                      <>
-                        <TrendingDown className="h-4 w-4 text-rose-600" />
-                        <span className="text-rose-700">
-                          - {formatarMoeda(comparativo.liquidoAntes - comparativo.liquidoDepois)}
-                        </span>
-                      </>
+                      <><TrendingDown className="h-4 w-4 text-rose-600" /><span className="text-rose-700">− {formatarMoeda(comparativo.liquidoAntes - comparativo.liquidoDepois)}</span></>
                     )}
                   </div>
                 </div>
-
-                <div className="bg-white rounded-lg p-2.5 border border-emerald-200">
-                  <span className="text-[11px] text-slate-500 block">Notas Aprovadas:</span>
-                  <span className="font-bold text-slate-800 text-sm">
+                <div className="rounded-lg border border-emerald-200 bg-white p-2.5">
+                  <span className="block text-[11px] text-slate-500">Notas aprovadas</span>
+                  <span className="text-sm font-bold tabular-nums text-slate-800">
                     {comparativo.aprovadasDepois} de {comparativo.totalNotas}{" "}
                     <span className="text-xs font-normal text-slate-500">
-                      ({comparativo.aprovadasDepois - comparativo.aprovadasAntes >= 0 ? "+" : ""}
-                      {comparativo.aprovadasDepois - comparativo.aprovadasAntes})
+                      ({comparativo.aprovadasDepois - comparativo.aprovadasAntes >= 0 ? "+" : ""}{comparativo.aprovadasDepois - comparativo.aprovadasAntes})
                     </span>
                   </span>
                 </div>
@@ -243,152 +226,122 @@ export function GavetaGestor({
             </div>
           )}
 
-          {/* Corpo Rolável com as Regras */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* Bloco de Precificação Global */}
+          {/* só esta parte rola; a rolagem não passa para a página de trás */}
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 sm:p-6">
             {config.precificacao && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Parâmetros Globais de Precificação
-                  </h3>
-                  <span className="text-[10px] font-mono text-slate-400 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                    {config.precificacao.metodo}
-                  </span>
+              <div className="space-y-3 rounded-2xl border border-creme-linha bg-creme p-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800">Preço da antecipação</h3>
+                  <p className="text-xs text-slate-500">Desconto simples: o custo cresce em linha reta com os dias até o vencimento.</p>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                      Taxa Mensal Padrão (% a.m.)
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label className="block text-xs font-medium text-slate-600">
+                    Taxa ao mês
+                    <span className="relative mt-1 block">
+                      <input type="number" step="0.1" value={config.precificacao.taxa_mensal_percentual ?? 2.0}
+                        onChange={(e) => atualizarPrecificacao("taxa_mensal_percentual", parseFloat(e.target.value) || 0)} className="input-base pr-8 text-sm tabular-nums" />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
+                    </span>
+                  </label>
+                  <label className="block text-xs font-medium text-slate-600">
+                    Dias em um mês
+                    <input type="number" value={config.precificacao.base_dias}
+                      onChange={(e) => atualizarPrecificacao("base_dias", parseInt(e.target.value, 10) || 30)} className="input-base mt-1 text-sm tabular-nums" />
+                  </label>
+                  {config.precificacao.prazo_minimo_cobranca_dias !== undefined && (
+                    <label className="block text-xs font-medium text-slate-600">
+                      Cobrar no mínimo
+                      <span className="relative mt-1 block">
+                        <input type="number" min="0" value={config.precificacao.prazo_minimo_cobranca_dias}
+                          onChange={(e) => atualizarPrecificacao("prazo_minimo_cobranca_dias", Math.max(0, parseInt(e.target.value, 10) || 0))} className="input-base pr-12 text-sm tabular-nums" />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">dias</span>
+                      </span>
                     </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={config.precificacao.taxa_mensal_percentual ?? 2.0}
-                      onChange={(e) =>
-                        atualizarPrecificacao("taxa_mensal_percentual", parseFloat(e.target.value) || 0)
-                      }
-                      className="input-base text-xs money"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                      Base de Dias (Comercial)
-                    </label>
-                    <input
-                      type="number"
-                      value={config.precificacao.base_dias}
-                      onChange={(e) =>
-                        atualizarPrecificacao("base_dias", parseInt(e.target.value, 10) || 30)
-                      }
-                      className="input-base text-xs money"
-                    />
-                  </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Lista de Validadores */}
             <div className="space-y-3">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Regras de Elegibilidade & Limites ({config.validadores.length} regras)
+              <h3 className="text-sm font-semibold text-slate-800">
+                O que o fundo aceita <span className="font-normal text-slate-500">· {config.validadores.filter((v) => v.ativo).length} de {config.validadores.length} regras ligadas</span>
               </h3>
 
               {config.validadores.map((validador, vIdx) => {
                 const parametros = Object.entries(validador.parametros);
-
+                const info = NOMES_REGRAS[validador.codigo];
                 return (
-                  <div
-                    key={validador.codigo}
-                    className={`rounded-xl border p-4 transition-all ${
-                      validador.ativo
-                        ? "border-slate-200 bg-white shadow-2xs"
-                        : "border-slate-200/60 bg-slate-50/70 opacity-70"
-                    }`}
-                  >
-                    {/* Header da Regra com Toggle */}
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-xs font-bold text-slate-900">
-                            {validador.codigo}
-                          </h4>
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                              validador.ativo
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-slate-200 text-slate-600"
-                            }`}
-                          >
-                            {validador.ativo ? "Ativa" : "Desativada"}
-                          </span>
-                        </div>
+                  <div key={validador.codigo}
+                    className={`rounded-2xl border p-4 transition-colors ${validador.ativo ? "border-creme-linha bg-white" : "border-creme-linha/70 bg-creme/60"}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h4 className={`text-sm font-semibold ${validador.ativo ? "text-slate-900" : "text-slate-500"}`}>{nomeRegra(validador.codigo)}</h4>
+                        {info && <p className="mt-0.5 text-xs text-slate-500">{info.explica}</p>}
                       </div>
-
-                      {/* Toggle Switch */}
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={validador.ativo}
-                          onChange={() => toggleValidador(vIdx)}
-                          className="sr-only"
-                        />
-                        <div
-                          className={`w-9 h-5 rounded-full transition-colors ${
-                            validador.ativo ? "bg-emerald-600" : "bg-slate-300"
-                          }`}
-                        >
-                          <div
-                            className={`w-4 h-4 rounded-full bg-white transition-transform transform mt-0.5 ml-0.5 ${
-                              validador.ativo ? "translate-x-4" : "translate-x-0"
-                            }`}
-                          />
-                        </div>
+                      <label className="relative inline-flex shrink-0 cursor-pointer items-center gap-2">
+                        <span className={`text-[11px] font-semibold ${validador.ativo ? "text-emerald-700" : "text-slate-500"}`}>{validador.ativo ? "Ligada" : "Desligada"}</span>
+                        <input type="checkbox" checked={validador.ativo} onChange={() => toggleValidador(vIdx)} className="peer sr-only"
+                          aria-label={`${nomeRegra(validador.codigo)}: ${validador.ativo ? "ligada" : "desligada"}`} />
+                        <span className={`h-5 w-9 rounded-full transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-emerald-700 ${validador.ativo ? "bg-emerald-600" : "bg-slate-300"}`}>
+                          <span className={`mt-0.5 ml-0.5 block h-4 w-4 rounded-full bg-white transition-transform ${validador.ativo ? "translate-x-4" : ""}`} />
+                        </span>
                       </label>
                     </div>
 
-                    {/* Inputs de Parâmetros Dinâmicos */}
                     {parametros.length > 0 && validador.ativo && (
-                      <div className="mt-3 pt-3 border-t border-slate-100 space-y-2.5">
+                      <div className="mt-3 space-y-3 border-t border-creme-linha pt-3">
                         {parametros.map(([chave, valor]) => {
-                          const metaParam = ROTULOS_PARAMETROS[chave] ?? {
-                            label: chave.replace(/_/g, " "),
+                          const meta = ROTULOS_PARAMETROS[chave] ?? {
+                            label: chave.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()),
                             type: typeof valor === "number" ? "number" : Array.isArray(valor) ? "list" : "text",
                           };
+                          const opcoes = OPCOES_PARAMETRO[chave];
+
+                          if (meta.type === "list" && opcoes) {
+                            const marcados = (Array.isArray(valor) ? valor : []).map(String);
+                            // valores que o JSON tem mas a lista não conhece continuam aparecendo
+                            const todas = [...opcoes, ...marcados.filter((m) => !opcoes.some((o) => o.valor === m)).map((m) => ({ valor: m, rotulo: m }))];
+                            return (
+                              <fieldset key={chave}>
+                                <legend className="mb-1.5 text-xs font-medium text-slate-600">{meta.label}</legend>
+                                <div className="flex flex-wrap gap-2">
+                                  {todas.map((o) => {
+                                    const on = marcados.includes(o.valor);
+                                    return (
+                                      <label key={o.valor} className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-emerald-700 ${on ? "border-emerald-600 bg-emerald-600 text-white" : "border-creme-linha bg-creme text-slate-600 hover:border-emerald-400"}`}>
+                                        <input type="checkbox" className="sr-only" checked={on} onChange={() => alternarOpcao(vIdx, chave, o.valor)} />
+                                        {on && <Check className="-ml-0.5 mr-1 inline h-3 w-3" />}{o.rotulo}
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </fieldset>
+                            );
+                          }
+
+                          if (meta.type === "escolha" && opcoes) {
+                            return (
+                              <label key={chave} className="block text-xs font-medium text-slate-600">
+                                {meta.label}
+                                <select value={String(valor ?? "")} onChange={(e) => atualizarParametro(vIdx, chave, e.target.value, "text")} className="input-base mt-1 text-sm">
+                                  {opcoes.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
+                                </select>
+                              </label>
+                            );
+                          }
 
                           const valorExibicao = Array.isArray(valor) ? valor.join(", ") : String(valor ?? "");
-
                           return (
-                            <div key={chave}>
-                              <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                                {metaParam.label}
-                              </label>
-                              <div className="relative">
-                                {metaParam.prefix && (
-                                  <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-medium">
-                                    {metaParam.prefix}
-                                  </span>
-                                )}
-                                <input
-                                  type={metaParam.type === "number" ? "number" : "text"}
-                                  step={metaParam.type === "number" ? "any" : undefined}
-                                  value={valorExibicao}
-                                  onChange={(e) =>
-                                    atualizarParametro(vIdx, chave, e.target.value, metaParam.type)
-                                  }
-                                  className={`input-base text-xs ${
-                                    metaParam.prefix ? "pl-8" : ""
-                                  } ${metaParam.suffix ? "pr-10" : ""}`}
-                                />
-                                {metaParam.suffix && (
-                                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-medium">
-                                    {metaParam.suffix}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                            <label key={chave} className="block text-xs font-medium text-slate-600">
+                              {meta.label}
+                              <span className="relative mt-1 block">
+                                {meta.prefix && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{meta.prefix}</span>}
+                                <input type={meta.type === "number" ? "number" : "text"} step={meta.type === "number" ? "any" : undefined} value={valorExibicao}
+                                  onChange={(e) => atualizarParametro(vIdx, chave, e.target.value, meta.type)}
+                                  className={`input-base text-sm tabular-nums ${meta.prefix ? "pl-9" : ""} ${meta.suffix ? "pr-12" : ""}`} />
+                                {meta.suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">{meta.suffix}</span>}
+                              </span>
+                            </label>
                           );
                         })}
                       </div>
@@ -399,89 +352,29 @@ export function GavetaGestor({
             </div>
           </div>
 
-          {/* Rodapé com Botões de Ação */}
-          <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-3">
-            {/* Campo de Senha para Chave de Gestor */}
-            <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-1.5 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <label
-                  htmlFor="chave-admin-input"
-                  className="text-xs font-semibold text-slate-700 flex items-center gap-1.5"
-                >
-                  <Key className="h-3.5 w-3.5 text-slate-500" />
-                  <span>Chave de Administração (API Key)</span>
-                </label>
-                <span className="text-[10px] text-slate-400">Salva nesta sessão</span>
-              </div>
-              <div className="relative">
-                <input
-                  id="chave-admin-input"
-                  type={mostrarChave ? "text" : "password"}
-                  value={chaveAdmin}
-                  onChange={(e) => handleChaveChange(e.target.value)}
-                  placeholder="Informe a chave para salvar regras..."
-                  className="input-base text-xs pr-9 font-mono"
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setMostrarChave(!mostrarChave)}
-                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 transition-colors"
-                  title={mostrarChave ? "Ocultar chave" : "Exibir chave"}
-                  tabIndex={-1}
-                >
-                  {mostrarChave ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-              </div>
-            </div>
-
-            {erro && (
-              <div className="p-3 bg-rose-50 text-rose-700 text-xs border border-rose-200 rounded-lg flex items-center justify-between">
-                <span>{erro}</span>
-                <button
-                  type="button"
-                  onClick={() => setErro(null)}
-                  className="text-rose-900 font-bold ml-2 hover:opacity-75"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleSimularWhatIf}
-                disabled={salvando || carregando}
-                className="btn btn-secondary flex-1 text-xs py-2.5"
-                title="Testa o impacto no lote sem alterar permanentemente o validadores_antecipe.json"
-              >
-                <Play className="h-3.5 w-3.5 text-emerald-600" />
-                <span>Simular What-If</span>
+          <div className="space-y-2 border-t border-creme-linha bg-creme p-4">
+            <label className="flex items-center gap-2 rounded-xl border border-creme-linha bg-white px-3 py-2 text-xs text-slate-600">
+              <KeyRound className="h-3.5 w-3.5 shrink-0 text-emerald-700" />
+              <span className="shrink-0">Chave do gestor</span>
+              <input id="chave-gestor" type={mostrarChave ? "text" : "password"} autoComplete="off" value={chaveGestor} onChange={(e) => mudarChave(e.target.value)}
+                placeholder="precisa só para salvar" className="min-w-0 flex-1 bg-transparent text-slate-900 outline-none placeholder:text-slate-400" />
+              <button type="button" onClick={() => setMostrarChave(!mostrarChave)} aria-label={mostrarChave ? "Esconder chave" : "Mostrar chave"}
+                className="shrink-0 rounded p-0.5 text-slate-400 hover:text-slate-700">
+                {mostrarChave ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
-
-              <button
-                type="button"
-                onClick={handleSalvarEPermutar}
-                disabled={salvando || carregando}
-                className="btn btn-emerald flex-2 text-xs py-2.5 shadow-md"
-              >
-                {sucesso ? (
-                  <>
-                    <Check className="h-3.5 w-3.5 text-white" />
-                    <span>Regras Salvas e Lote Recalculado!</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-3.5 w-3.5 text-white" />
-                    <span>Aplicar sem Deploy & Recalcular</span>
-                  </>
-                )}
+            </label>
+            {erroSalvar && <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-800">{erroSalvar}</p>}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button type="button" onClick={handleSimularWhatIf} disabled={salvando || carregando} className="btn btn-secondary flex-1 py-2.5 text-xs"
+                title="Mostra o efeito no lote aberto sem mudar as regras do fundo">
+                <Play className="h-3.5 w-3.5 text-emerald-600" /><span>Testar sem salvar</span>
+              </button>
+              <button type="button" onClick={handleSalvarEPermutar} disabled={salvando || carregando} className="btn btn-emerald flex-1 py-2.5 text-xs shadow-md">
+                {sucesso ? <><Check className="h-3.5 w-3.5 text-white" /><span>Regras salvas e lote recalculado</span></>
+                  : <><Save className="h-3.5 w-3.5 text-white" /><span>Salvar e recalcular</span></>}
               </button>
             </div>
-
-            <p className="text-[11px] text-center text-slate-400">
-              O motor recarrega as regras em memória atomicamente sem downtime.
-            </p>
+            <p className="text-center text-[11px] text-slate-500">As novas regras passam a valer na hora para todas as próximas notas.</p>
           </div>
         </div>
       </div>

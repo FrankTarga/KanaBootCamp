@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { MenuLateral, type Tela } from "./components/MenuLateral";
+import { PaginaInicial } from "./components/PaginaInicial";
 import { TelaEnvio } from "./components/telas/TelaEnvio";
 import { TelaResumo, Cabecalho } from "./components/telas/TelaResumo";
 import { TelaEstatistica } from "./components/telas/TelaEstatistica";
+import { TelaHistorico } from "./components/telas/TelaHistorico";
+import { TelaPerda } from "./components/telas/TelaPerda";
 import { StatusApi } from "./components/StatusApi";
 import { TabelaRecebiveis } from "./components/TabelaRecebiveis";
 import { GavetaGestor } from "./components/GavetaGestor";
@@ -11,7 +14,7 @@ import { validarLote, salvarValidadores, simularLoteLocal, obterHealth } from ".
 import { formatarMoedaCompacta } from "./utils/formatters";
 import type { BatchValidationResponse, ComparativoRegras, FonteDados, ModoValidacao, ValidadoresConfig } from "./types/api";
 
-const TELAS: Tela[] = ["envio", "resumo", "estatistica", "notas"];
+const TELAS: Tela[] = ["envio", "resumo", "estatistica", "perda", "notas", "historico"];
 const telaDoEndereco = (): Tela => {
   const h = window.location.hash.slice(1) as Tela;
   return TELAS.includes(h) ? h : "envio";
@@ -39,6 +42,7 @@ export default function App() {
   // Parâmetros da operação
   const [dataBase, setDataBase] = useState<string>("22/10/2026");
   const [taxaMensalPercentual, setTaxaMensalPercentual] = useState<number>(2.0);
+  // sem mexer na taxa, o servidor usa a do fundo (JSON); só envia se a pessoa alterar
   const [taxaAlteradaManualmente, setTaxaAlteradaManualmente] = useState<boolean>(false);
   const [otimizarLote, setOtimizarLote] = useState<boolean>(true);
   const [modo, setModo] = useState<ModoValidacao>("lote");
@@ -59,16 +63,40 @@ export default function App() {
 
   // Tela atual vive no endereço (#resumo...), então voltar do navegador e links funcionam
   const [tela, setTelaEstado] = useState<Tela>(telaDoEndereco);
+  const navInterna = useRef(false); // true quando o próprio site trocou o endereço
+  // o painel fica logo abaixo da página inicial; trocar de tela leva ao topo do painel
+  const painelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const aoMudar = () => setTelaEstado(telaDoEndereco());
+    // endereço mudou por fora (voltar do navegador, link colado): troca a tela e desce até o painel
+    const aoMudar = () => {
+      if (navInterna.current) { navInterna.current = false; return; } // a rolagem já foi tratada por quem navegou
+      setTelaEstado(telaDoEndereco());
+      if (TELAS.includes(window.location.hash.slice(1) as Tela)) requestAnimationFrame(() => topoDoPainel(false));
+      else window.scrollTo({ top: 0 });
+    };
     window.addEventListener("hashchange", aoMudar);
     return () => window.removeEventListener("hashchange", aoMudar);
   }, []);
-  const irPara = (t: Tela) => {
-    if (window.location.hash.slice(1) !== t) window.location.hash = t;
-    setTelaEstado(t);
-    window.scrollTo({ top: 0 });
+  const topoDoPainel = (suave: boolean) => {
+    const el = painelRef.current;
+    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: suave ? "smooth" : "instant" });
   };
+  const irPara = (t: Tela, suave = false) => {
+    if (window.location.hash.slice(1) !== t) { navInterna.current = true; window.location.hash = t; }
+    setTelaEstado(t);
+    topoDoPainel(suave);
+  };
+  const entrarNoPainel = useCallback((t?: Tela) => {
+    if (t) {
+      if (window.location.hash.slice(1) !== t) { navInterna.current = true; window.location.hash = t; }
+      setTelaEstado(t);
+    }
+    topoDoPainel(true);
+  }, []);
+  // link direto para uma tela (#resumo...) abre já no painel, sem passar pela página inicial
+  useEffect(() => {
+    if (TELAS.includes(window.location.hash.slice(1) as Tela)) requestAnimationFrame(() => topoDoPainel(false));
+  }, []);
 
   // A tela nunca começa vazia: lote de demonstração local até a pessoa enviar o dela
   useEffect(() => {
@@ -76,18 +104,14 @@ export default function App() {
     setFonteDados("demo");
     obterHealth()
       .then((res) => {
-        if (res.dados.taxa_mensal_padrao !== undefined) {
-          setTaxaMensalPercentual(Number((res.dados.taxa_mensal_padrao * 100).toFixed(4)));
-        }
-        if (res.dados.data_base_padrao) {
-          setDataBase(res.dados.data_base_padrao);
-        }
+        if (res.dados.taxa_mensal_padrao !== undefined) setTaxaMensalPercentual(Number((res.dados.taxa_mensal_padrao * 100).toFixed(4)));
+        if (res.dados.data_base_padrao) setDataBase(res.dados.data_base_padrao);
       })
       .catch(() => {});
   }, []);
 
   const processarLote = useCallback(
-    async (arquivo: File | null, override?: ValidadoresConfig, isWhatIfSimulacao = false, depois?: Tela) => {
+    async (arquivo: File | null, override?: ValidadoresConfig, isWhatIfSimulacao = false, depois?: Tela, regrasJaNoServidor = false) => {
       setCarregando(true);
       setErroGeral(null);
       const valorLiquidoAnterior = resultado?.resumo.valor_liquido_receber ?? 0;
@@ -98,7 +122,8 @@ export default function App() {
           dataBase,
           taxaMensal: taxaAlteradaManualmente ? taxaMensalPercentual / 100 : undefined,
           otimizarLote,
-          validadoresOverride: override,
+          // regras recém-salvas no servidor: valida com elas direto, sem override (senão o histórico registra como simulação)
+          validadoresOverride: regrasJaNoServidor ? undefined : override,
           modo,
         });
         setResultado(res.dados);
@@ -148,19 +173,24 @@ export default function App() {
   const demo = fonteDados === "demo";
   const motorDesligado = !!arquivoAtual && demo; // enviou arquivo, mas a API não respondeu: números do lote de demonstração
 
-  if (!persona) {
-    return <LoginScreen onLogin={(p) => { setPersona(p); setDrawerGestorAberto(p.role === "GESTOR"); }} />;
-  }
-  const gestor = persona.role === "GESTOR";
+  const gestor = persona?.role === "GESTOR";
 
   return (
     <div className="min-h-screen bg-creme font-sans">
+      <PaginaInicial onEntrar={entrarNoPainel} />
+
+      {/* abaixo da página inicial: login (se ainda não entrou) ou o painel */}
+      <div ref={painelRef} id="painel">
+      {!persona ? (
+        <LoginScreen onLogin={(p) => { setPersona(p); setDrawerGestorAberto(p.role === "GESTOR"); requestAnimationFrame(() => topoDoPainel(false)); }} />
+      ) : (
+      <div className="relative min-h-screen lg:flex">
       <MenuLateral
         tela={tela}
         onTela={irPara}
         onAbrirGestor={gestor ? () => setDrawerGestorAberto(true) : undefined}
         persona={persona}
-        onSair={() => { setPersona(null); setDrawerGestorAberto(false); }}
+        onSair={() => { setPersona(null); setDrawerGestorAberto(false); requestAnimationFrame(() => topoDoPainel(false)); }}
         onCarregarDemo={handleCarregarDemo}
         carregando={carregando}
         temResultado={!!resultado}
@@ -170,7 +200,7 @@ export default function App() {
         nomeLote={loteAtual?.nome ?? null}
       />
 
-      <main className="lg:pl-72">
+      <main className="min-h-screen min-w-0 flex-1">
         {tela === "envio" && (
           <TelaEnvio
             onLote={handleLote}
@@ -185,10 +215,7 @@ export default function App() {
             dataBase={dataBase}
             onDataBaseChange={setDataBase}
             taxaMensalPercentual={taxaMensalPercentual}
-            onTaxaMensalChange={(v) => {
-              setTaxaMensalPercentual(v);
-              setTaxaAlteradaManualmente(true);
-            }}
+            onTaxaMensalChange={(v) => { setTaxaMensalPercentual(v); setTaxaAlteradaManualmente(true); }}
             otimizarLote={otimizarLote}
             onOtimizarLoteChange={setOtimizarLote}
           />
@@ -210,6 +237,8 @@ export default function App() {
           <TelaEstatistica resumo={resultado.resumo} itens={resultado.itens} analise={resultado.analise_recusas} onVerNotas={verNotas} />
         )}
 
+        {resultado && tela === "perda" && <TelaPerda resumo={resultado.resumo} meta={resultado.meta} itens={resultado.itens} />}
+
         {resultado && tela === "notas" && (
           <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-10 sm:px-8 lg:py-14">
             <Cabecalho titulo="Nota por nota" sub="Busque pelo número da nota ou pelo cliente. Clique numa nota recusada para ver o problema e o que fazer." />
@@ -217,14 +246,21 @@ export default function App() {
             <TabelaRecebiveis itens={resultado.itens} motivoFiltroAtivo={motivoFiltroAtivo} onLimparMotivoFiltro={() => setMotivoFiltroAtivo(null)} />
           </div>
         )}
+        {tela === "historico" && (
+          // só marca "aberto agora" quando o lote veio do servidor (o demo local não está no banco)
+          <TelaHistorico batchHashAtual={fonteDados === "api" ? resultado?.meta.batch_hash_idempotencia ?? null : null} />
+        )}
       </main>
+      </div>
+      )}
+      </div>
 
       <GavetaGestor
         aberto={gestor && drawerGestorAberto}
         onFechar={() => setDrawerGestorAberto(false)}
         onAplicarRegras={async (config, chave) => {
-          await salvarValidadores(config, chave);
-          await processarLote(arquivoAtual, config, false);
+          const salvo = await salvarValidadores(config, chave);
+          await processarLote(arquivoAtual, config, false, undefined, salvo.fonte === "api");
         }}
         onSimularWhatIf={(config) => processarLote(arquivoAtual, config, true)}
         carregando={carregando}

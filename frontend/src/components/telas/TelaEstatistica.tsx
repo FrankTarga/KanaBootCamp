@@ -16,7 +16,7 @@ const fPct = (v: number) => `${v.toLocaleString("pt-BR", { minimumFractionDigits
 // tons por posição para os grupos de problema único; "mais de um problema" tem cor própria
 const TONS = ["bg-emerald-700", "bg-emerald-500", "bg-teal-400", "bg-emerald-300", "bg-teal-600", "bg-emerald-200", "bg-teal-300"];
 
-function Cartao({ titulo, nota, children, className = "" }: { titulo: string; nota: string; children: ReactNode; className?: string }) {
+export function Cartao({ titulo, nota, children, className = "" }: { titulo: string; nota: string; children: ReactNode; className?: string }) {
   return (
     <section className={`flex min-w-0 flex-col gap-4 rounded-3xl border border-creme-linha bg-creme-claro p-6 shadow-card ${className}`}>
       <header className="border-l-4 border-emerald-600 pl-3">
@@ -109,7 +109,7 @@ export function TelaEstatistica({ resumo, itens, analise, onVerNotas }: TelaEsta
 
       <Cartao titulo="Por que as notas foram recusadas" nota="Cada nota recusada entra em um único grupo, então os percentuais somam 100%.">
         {analise ? <GruposRecusas analise={analise} onVerNotas={onVerNotas} />
-          : <p className="rounded-2xl bg-creme p-4 text-sm text-slate-600">Os grupos de recusa aparecem quando o motor de análise está ligado. No modo demonstração, veja o valor por problema abaixo.</p>}
+          : <p className="rounded-2xl bg-creme p-4 text-sm text-slate-600">Os grupos de recusa aparecem quando a análise do servidor está ligada. No modo demonstração, veja o valor por problema abaixo.</p>}
       </Cartao>
 
       <div className="grid gap-6 lg:grid-cols-3">

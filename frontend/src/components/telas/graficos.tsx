@@ -14,7 +14,7 @@ const ABREVIACAO: Record<string, string> = {
 };
 export const GRAVE = new Set(["FRAUDE_OUTRO_FUNDO", "DUPLICIDADE_FUNDO", "DUPLICIDADE_LOTE"]);
 
-const FAIXAS = [
+export const FAIXAS = [
   { rotulo: "até 15", max: 15 }, { rotulo: "16–30", max: 30 }, { rotulo: "31–60", max: 60 },
   { rotulo: "61–90", max: 90 }, { rotulo: "91–180", max: 180 }, { rotulo: "+180", max: Infinity },
 ];

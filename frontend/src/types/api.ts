@@ -69,6 +69,8 @@ export interface PrecificacaoConfig {
   /** Percentual ao mês no JSON (2.0 = 2% a.m.). A API de validação recebe a fração (0.02). */
   taxa_mensal_percentual: number | null;
   base_dias: number;
+  /** deságio cobra ao menos N dias, mesmo para nota com prazo menor */
+  prazo_minimo_cobranca_dias?: number;
 }
 
 export interface ValidadoresConfig {
@@ -226,4 +228,101 @@ export interface ComparativoRegras {
   aprovadasAntes: number;
   aprovadasDepois: number;
   totalNotas: number;
+}
+
+// ---------------------------------------------------------------------------
+// GET /historico/* (SQLite no backend, paginado, mais recente primeiro)
+// ---------------------------------------------------------------------------
+export interface HistoricoLote {
+  id: number;
+  criado_em: string; // ISO 8601 em UTC
+  request_id: string;
+  chave_idempotencia: string;
+  batch_hash: string;
+  modo: string;
+  data_base: string;
+  taxa_mensal: number;
+  otimizar_lote: boolean;
+  versao_config: number;
+  what_if: boolean; // simulação do gestor (validadores_override)
+  replay: boolean; // resposta veio do cache de idempotência
+  total_notas: number;
+  qtd_aprovadas: number;
+  qtd_recusadas: number;
+  qtd_alertas_fraude: number;
+  valor_bruto_total: number;
+  valor_liquido_receber: number;
+  tempo_processamento_ms: number;
+}
+
+export interface MudancaRegras {
+  id: number;
+  criado_em: string;
+  request_id: string;
+  versao_config: number;
+  regras_ativas: number;
+  config: Record<string, unknown>;
+}
+
+export interface PaginaHistorico<T> {
+  total: number;
+  limite: number;
+  offset: number;
+  itens: T[];
+}
+
+/** Nota guardada no histórico (mesmos campos da resposta da validação, menos os internos). */
+export interface NotaHistorico {
+  linha_csv: number;
+  nu_documento: string;
+  nome_cedente: string;
+  doc_cedente: string;
+  nome_sacado: string;
+  doc_sacado: string;
+  tipo_recebivel: string;
+  valor_nominal: number;
+  data_vencimento: string;
+  prazo_dias: number;
+  desagio_reais: number;
+  valor_liquido: number;
+  status: StatusNota;
+  severidade: Severidade;
+  salva_pelo_otimizador: boolean;
+  erros: ErroNota[];
+}
+
+/** GET /historico/lotes/{id}: resumo + notas de um lote antigo. */
+export interface DetalheLoteHistorico {
+  lote: HistoricoLote;
+  notas_de_lote_id: number; // repetição do cache aponta para o envio original
+  notas_guardadas: boolean; // false no modo carteira (só o resumo é guardado)
+  total_notas_guardadas: number;
+  limite: number;
+  offset: number;
+  notas: NotaHistorico[];
+}
+
+/** GET /historico/notas?nu_documento=: cada lote em que o número de nota apareceu. */
+export interface OcorrenciaNota {
+  lote_id: number;
+  criado_em: string;
+  modo: string;
+  what_if: boolean;
+  batch_hash: string;
+  linha_csv: number;
+  nu_documento: string;
+  nome_cedente: string;
+  doc_cedente: string;
+  nome_sacado: string;
+  doc_sacado: string;
+  tipo_recebivel: string;
+  valor_nominal: number;
+  data_vencimento: string;
+  prazo_dias: number;
+  desagio_reais: number;
+  valor_liquido: number;
+  status: StatusNota;
+  severidade: Severidade;
+  salva_pelo_otimizador: boolean;
+  codigos_erro: string[];
 }
