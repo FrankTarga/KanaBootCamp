@@ -1,7 +1,7 @@
 {
   "meta": {
-    "batch_hash_idempotencia": "de4b6ab4b42e626da37c40bb70f8b5b335d5b50ad2593f1b77172912fd00cb09",
-    "tempo_processamento_ms": 3.89,
+    "batch_hash_idempotencia": "6bfce72ef57546a450f02caf7cd82dcb2262b2a975db4b3946d4a725d59df0a0",
+    "tempo_processamento_ms": 2.54,
     "data_base_utilizada": "22/10/2026",
     "taxa_mensal_aplicada": 0.02,
     "otimizador_ativo": true,
@@ -28,6 +28,12 @@
         "valor_impactado": 9915.0
       },
       {
+        "codigo": "SITUACAO_CADASTRAL_SACADO",
+        "titulo_amigavel": "Cadastro do cliente irregular na Receita Federal",
+        "quantidade": 2,
+        "valor_impactado": 5400.0
+      },
+      {
         "codigo": "TIPO_RECEBIVEL",
         "titulo_amigavel": "Tipo de título não aceito",
         "quantidade": 2,
@@ -44,12 +50,6 @@
         "titulo_amigavel": "Limite de crédito do cliente atingido",
         "quantidade": 1,
         "valor_impactado": 15000.0
-      },
-      {
-        "codigo": "SITUACAO_CADASTRAL_SACADO",
-        "titulo_amigavel": "Cadastro do cliente irregular na Receita Federal",
-        "quantidade": 1,
-        "valor_impactado": 3400.0
       },
       {
         "codigo": "NAO_VENCIDA",
@@ -340,12 +340,12 @@
     {
       "linha_csv": 13,
       "ordem_avaliacao": 12,
-      "hash_titulo": "41d6b4899e2f866a22f6fbbd37f094a52565b6c6d2bae0175bf4f18d93d6254d",
+      "hash_titulo": "09c5ff95bfb141ed2b68d436eb112c7cb0ac43e025cc1011e2426879dbf4f53f",
       "nu_documento": "000353120",
       "nome_cedente": "FÁBRICA DE TINTAS VARGINHA SLU",
       "doc_cedente": "76264729000137",
-      "nome_sacado": "ESCOLA SANTA MARIA LTDA",
-      "doc_sacado": "46778910000109",
+      "nome_sacado": "RODRIGUES & BERTOLINI COMÉRCIO LTDA",
+      "doc_sacado": "03601302000103",
       "tipo_recebivel": "Duplicata",
       "valor_nominal": 3400.0,
       "data_vencimento": "25/11/2026",
@@ -360,7 +360,7 @@
         {
           "codigo": "SITUACAO_CADASTRAL_SACADO",
           "titulo_amigavel": "Cadastro do cliente irregular na Receita Federal",
-          "mensagem_empresa": "O CNPJ do cliente ESCOLA SANTA MARIA LTDA (46.778.910/0001-09) aparece com situação cadastral \"BAIXADA\" na Receita Federal. O fundo só compra notas de clientes com situação ATIVA.",
+          "mensagem_empresa": "O CNPJ do cliente RODRIGUES & BERTOLINI COMÉRCIO LTDA (03.601.302/0001-03) aparece com situação cadastral \"BAIXADA\" na Receita Federal. O fundo só compra notas de clientes com situação ATIVA.",
           "acao_recomendada": "Peça ao cliente para regularizar o CNPJ na Receita Federal. Enquanto isso, antecipe notas de outros clientes."
         }
       ]
@@ -509,6 +509,12 @@
           "titulo_amigavel": "Documento do cliente inválido",
           "mensagem_empresa": "O documento do cliente COMERCIAL BOA VISTA LTDA (12.345.678/0001-00) não é um CNPJ ou CPF válido: os dígitos verificadores do CNPJ não conferem.",
           "acao_recomendada": "Confira o CNPJ do cliente na nota fiscal ou no cadastro e reenvie esta nota com o documento correto."
+        },
+        {
+          "codigo": "SITUACAO_CADASTRAL_SACADO",
+          "titulo_amigavel": "Cadastro do cliente irregular na Receita Federal",
+          "mensagem_empresa": "O CNPJ do cliente COMERCIAL BOA VISTA LTDA (12.345.678/0001-00) não foi encontrado na base da Receita Federal. O fundo só compra notas de clientes com cadastro confirmado.",
+          "acao_recomendada": "Confira o CNPJ do cliente na nota fiscal e reenvie a nota com o documento correto."
         }
       ]
     },
