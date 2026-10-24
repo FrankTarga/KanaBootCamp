@@ -1,177 +1,186 @@
 # Guia de uso do ANTECIPE PRO
 
-Guia para a equipe subir o sistema, entender cada parte do site e testar. Siga na ordem.
+Passo a passo para a equipe ligar o sistema, entrar e testar cada parte do site. Siga na ordem.
 
 ---
 
-## 1. Subir o sistema
+## Usuários e senhas
 
-**Precisa ter:** Git e Docker Desktop (aberto e com a baleia verde "Engine running").
+| perfil (escolha na tela de login) | e-mail | senha |
+|---|---|---|
+| **Gestor do fundo** | `banca@antecipe.com.br` | `kanastratop` |
+| **Empresa (cedente)** | `empresa@antecipe.com.br` | `empresa123` |
 
-### 1.1 Baixar a versão mais nova
+**Chave do gestor** (para salvar regras na gaveta "Regras do fundo"): `antecipe-gestor`
+
+Essas senhas só funcionam se o arquivo `.env` estiver como no Passo 2.
+
+---
+
+## PARTE 1: Ligar o sistema
+
+### Passo 1: Baixar a versão final
+
+Precisa ter o **Git** e o **Docker Desktop** instalados. Abra o Docker Desktop e espere aparecer "Engine running".
+
+No PowerShell:
 
 ```powershell
 cd $HOME\Documents\KanaBootCamp
 git pull
 ```
 
-### 1.2 Criar o arquivo `.env` (só na primeira vez)
-
-O `.env` guarda as senhas e **não vai para o GitHub**. Sem ele, o login com senha não funciona.
+Se ainda não tiver o projeto no computador:
 
 ```powershell
-Copy-Item .env.example .env
+cd $HOME\Documents
+git clone https://github.com/FrankTarga/KanaBootCamp.git
+cd KanaBootCamp
+```
+
+### Passo 2: Criar o arquivo `.env`
+
+```powershell
 notepad .env
 ```
 
-Troque os valores que começam com `troque-`:
+Se o Notepad perguntar se quer criar o arquivo, clique em **Sim**. Apague o que houver e cole exatamente isto:
 
-| variável | para que serve |
-|---|---|
-| `ADMIN_API_KEY` | chave que o gestor digita em "Chave do gestor" para **salvar** regras |
-| `BANCA_SENHA` | senha da conta `banca@antecipe.com.br` (perfil **Gestor do fundo**) |
-| `CEDENTE_SENHA` | senha da conta `empresa@antecipe.com.br` (perfil **Empresa (cedente)**) |
-| `SESSAO_SEGREDO` | qualquer texto longo; assina o login (sem ele, reiniciar o servidor desloga todo mundo) |
+```
+ADMIN_API_KEY=antecipe-gestor
+BANCA_EMAIL=banca@antecipe.com.br
+BANCA_SENHA=kanastratop
+CEDENTE_EMAIL=empresa@antecipe.com.br
+CEDENTE_SENHA=empresa123
+SESSAO_SEGREDO=antecipe-segredo-de-sessao-2026
+VITE_API_URL=http://localhost:8000/api/v1
+SITUACAO_FONTE=gabarito
+```
 
-Combinem as senhas no grupo da equipe. Não coloquem senha em arquivo que vai para o Git.
+Salve (Ctrl+S) e feche.
 
-### 1.3 Ligar
+### Passo 3: Ligar
+
+Se houver algum `npm run dev` aberto, feche com Ctrl+C. Depois:
 
 ```powershell
 docker compose up -d --build
 docker compose ps
 ```
 
-Espere `backend` e `mock-receita` aparecerem como **healthy** (cerca de 1 minuto na primeira vez). Depois abra:
+Espere `backend` e `mock-receita` aparecerem como **healthy**. Na primeira vez leva cerca de 1 minuto; repita o `docker compose ps` até aparecer.
 
-- Site: **http://localhost:5173**
-- Documentação da API: http://localhost:8000/docs
+### Passo 4: Abrir o site
 
-Para desligar: `docker compose down`. Depois de mudar o `.env`, rode `docker compose up -d --build` de novo.
+Abra **http://localhost:5173** no navegador.
 
----
-
-## 2. Contas de acesso
-
-| perfil na tela de login | e-mail | senha | o que vê |
-|---|---|---|---|
-| **Gestor do fundo** | `banca@antecipe.com.br` | a de `BANCA_SENHA` | tudo, inclusive **Regras do fundo** |
-| **Empresa (cedente)** | `empresa@antecipe.com.br` | a de `CEDENTE_SENHA` | tudo, menos Regras do fundo |
-
-Escolha o perfil antes de digitar a senha. Entrar com a conta da empresa no perfil de gestor (ou o contrário) é barrado de propósito.
+Para desligar no fim: `docker compose down`.
 
 ---
 
-## 3. Cada parte do site
+## PARTE 2: Testar, passo a passo
 
-### Página inicial
-**Para que serve:** explica o que o sistema faz, com um exemplo de nota aprovada e recusada e os 3 passos.
-**Como usar:** clique numa opção do menu de cima (Enviar notas, Resumo...) ou role a página para baixo. A tela desce sozinha para o login (ou para o painel, se já tiver entrado).
+Os números abaixo valem com a taxa padrão de 2% ao mês e a data 22/10/2026. Os arquivos de teste ficam na pasta `samples` do projeto.
 
-### Login
-**Para que serve:** identificar quem está usando: empresa ou gestor.
-**Como usar:** escolha o perfil, confira o e-mail (já vem preenchido), digite a senha e clique em "Entrar como...". O login dura 8 horas e continua valendo depois de apertar F5. Para sair, use o botão ao lado do seu nome, no pé do menu lateral. Ao sair, o lote que estava aberto é apagado da tela.
+### Passo 5: Página inicial
+1. Veja o texto explicando o sistema, o exemplo de nota aprovada e recusada e os 3 passos.
+2. Role a página para baixo, ou clique numa opção do menu de cima. A tela desce até o login.
 
-### Menu lateral
-**Para que serve:** navegar entre as telas. Fica parado; só o conteúdo à direita rola.
-- Mostra quanto cai na conta hoje (em "Resumo") e quantas notas foram recusadas (bolinha vermelha em "Notas").
-- O quadro de baixo diz **"Análise ligada"** (números do servidor) ou **"Modo demonstração"** (números de exemplo).
-- No celular, o menu abre pelo botão ☰ no topo.
+### Passo 6: Login como empresa
+1. Clique em **Empresa (cedente)**. O e-mail `empresa@antecipe.com.br` já vem preenchido.
+2. Digite uma senha errada e clique em **Entrar**. Deve aparecer "E-mail ou senha incorretos."
+3. Digite `empresa123` e entre.
+4. Confira: o menu lateral mostra "Metalúrgica Silva LTDA" embaixo e **não** tem "Regras do fundo".
 
-### Enviar notas
-**Para que serve:** mandar as notas para análise.
-**Como usar:**
-1. Escolha o tipo:
-   - **Notas para antecipar:** um lote novo da empresa (o uso normal).
-   - **Carteira do fundo:** analisa o estoque inteiro do fundo com as regras do gabarito (use o `backend/data/estoque_antecipe.csv`, 100 mil notas, cerca de 10 segundos).
-2. Arraste uma **pasta** (pode ter subpastas) ou arquivos CSV para a caixa, ou use "Escolher pasta" ou "Escolher arquivos". Vários arquivos viram um lote só, desde que tenham o mesmo cabeçalho.
-3. Opcional, antes de enviar: **data da operação**, **taxa** ao mês (se não mexer, vale a do fundo, 2%) e **Otimizar** (reorganiza o lote para caber mais notas quando o limite de um cliente aperta).
+### Passo 7: Enviar notas
+1. No menu lateral, clique em **Enviar notas**.
+2. Deixe marcado **Notas para antecipar**.
+3. Arraste o arquivo `samples\01_lote_empresarial_padrao.csv` para a caixa, ou clique em **Escolher arquivos**.
+4. O site vai sozinho para o **Resumo**.
 
-Ao terminar, o site vai sozinho para o Resumo. Um arquivo com colunas erradas mostra um aviso vermelho explicando o que falta.
+### Passo 8: Resumo
+- Deve mostrar **R$ 184,2 mil** na conta hoje, com **13 notas aprovadas de 22**.
+- O extrato é: valor enviado, menos o que ficou de fora, menos o custo da antecipação, igual ao que cai na conta.
 
-### Resumo
-**Para que serve:** responder "quanto eu recebo hoje".
-**Como ler:** um extrato com valor enviado, menos o que ficou de fora, menos o custo da antecipação, igual ao que cai na conta. Mostra também quantas notas foram aprovadas, o ganho do otimizador e o alerta de fraude, se houver. Os botões levam direto às notas de cada caso.
+### Passo 9: Estatística
+1. Clique em **Estatística**.
+2. **Por que as notas foram recusadas:** cada nota recusada está em um único cartão, e os percentuais somam 100%.
+3. Clique no cartão **Mais de um problema** para abrir as combinações.
+4. Clique em qualquer outro cartão: abre a tela **Notas** só com as notas daquele problema.
+5. Mais abaixo: **Liquidez** (barras do enviado ao recebido), **Valor por problema** e **Vencimentos**.
 
-### Estatística
-**Para que serve:** entender por que as notas ficaram de fora e onde está o dinheiro.
-- **Por que as notas foram recusadas:** cada nota recusada entra em um único grupo, então os percentuais somam 100%. Cada cartão diz quanto aquele problema libera se for corrigido. Clicar num cartão abre a lista de notas daquele problema. O cartão **"Mais de um problema"** abre por quantidade de problemas e por combinação.
-- **Liquidez:** do valor enviado ao que cai na conta, em barras.
-- **Valor por problema** e **Vencimentos** (quanto vence em cada faixa de prazo).
+### Passo 10: Notas
+1. Clique numa nota recusada: a explicação abre logo abaixo, com o motivo e **Como resolver**.
+2. Use as abas (Todas, Aprovadas, Recusadas...) e a busca por número, cliente ou CNPJ.
+3. Clique em **Baixar aprovadas** e em **Relatório de recusas**: as duas planilhas abrem no Excel.
 
-### Análise de perda
-**Para que serve:** mostrar quanto custa esperar e por que notas curtas rendem mais.
-**Como usar:** digite o **valor da nota** e escolha o **prazo** (no controle ou clicando no gráfico). Os quadros mostram quanto se **recebe hoje** e quanto se **perde**. Exemplo a 2% ao mês: R$ 50.000 em 60 dias recebe R$ 48.000 e perde R$ 2.000 (4%). Embaixo, "Mesmo valor, prazos diferentes" e o custo por faixa de prazo das notas aprovadas.
+### Passo 11: Análise de perda
+1. Clique em **Análise de perda**.
+2. Em **Valor da nota**, digite `50000` e deixe o prazo em 60 dias.
+3. Deve mostrar: **Recebe hoje R$ 48.000,00** e **Perde R$ 2.000,00 (4%)**.
+4. Mude o prazo no controle ou clicando no gráfico e veja os valores mudarem.
 
-### Notas
-**Para que serve:** ver nota por nota.
-**Como usar:**
-- Use as abas Todas, Aprovadas, Recusadas, Salvas pela reorganização e Suspeita de fraude, ou a busca por número, cliente, CNPJ ou tipo.
-- Clique numa nota: a explicação abre logo abaixo, com o motivo e **"Como resolver"**.
-- **Baixar aprovadas** e **Relatório de recusas** geram planilhas CSV que abrem no Excel.
-- Com 100 mil notas, a tela desenha 300 por vez; use a busca para achar as outras.
+### Passo 12: Enviar uma pasta e o radar de fraude
+1. Volte em **Enviar notas** e envie `samples\03_demo_radar_antifraude.csv`.
+2. Em **Notas**, deve aparecer a aba **Suspeita de fraude (3)**: notas já vendidas a outros fundos.
+3. Teste também **Escolher pasta** com uma pasta que tenha dois CSVs: eles viram um lote só.
 
-### Histórico
-**Para que serve:** tudo o que já foi analisado fica salvo no servidor, mesmo fechando o navegador.
-- **Procurar uma nota:** digite o número (zeros à esquerda não importam) para ver em quais envios ela apareceu e o que aconteceu em cada um. Clique numa linha para abrir aquele envio.
-- **Lotes validados:** cada envio com data, tipo, notas, aprovadas, recusadas e líquido. "Ver notas" abre as notas daquele envio, com os motivos. Etiquetas: **Repetido** (mesmo arquivo e mesmos parâmetros, resposta guardada), **Simulação** (teste do gestor) e **Aberto agora**.
-- **Mudanças nas regras:** cada vez que o gestor salvou regras.
-- Envios de **carteira** guardam só o resumo, não nota por nota.
+### Passo 13: Sair e entrar como gestor
+1. No pé do menu lateral, clique no botão de sair, ao lado do nome.
+2. Clique em **Gestor do fundo**, digite `kanastratop` e entre.
+3. Confira: o lote da empresa **não** aparece mais, e a gaveta **Regras do fundo** abre sozinha. Feche com Esc.
 
-### Regras do fundo (só gestor)
-**Para que serve:** mudar o que o fundo aceita, sem reiniciar nada.
-**Como usar:**
-1. Ligue ou desligue regras e ajuste valores: taxa ao mês, valor mínimo, prazo máximo, limite por cliente, tipos e situações aceitos (botões de marcar).
-2. **Testar sem salvar:** recalcula o lote aberto com as regras novas e mostra o efeito (dinheiro liberado e notas aprovadas), sem mudar o fundo.
-3. **Salvar e recalcular:** digite a **Chave do gestor** (a `ADMIN_API_KEY` do `.env`) e salve. Passa a valer na hora para todos e aparece no Histórico.
+### Passo 14: Otimizador
+1. Envie `samples\02_demo_otimizador_concentracao.csv`.
+2. No **Resumo**, deve aparecer o ganho do otimizador: **+R$ 1,6 mi** e 2 notas salvas. O cliente estava perto do limite, e o sistema trocou uma nota longa por duas curtas.
 
-Abre sozinha ao entrar como gestor. Esc ou o X fecham.
+### Passo 15: Regras do fundo (só o gestor)
+1. No menu lateral, clique em **Regras do fundo**.
+2. Desligue a regra **Limite por cliente** e clique em **Testar sem salvar**. Com o lote 02 aberto, passa de 6 para 7 notas aprovadas. Aparece o efeito no lote (dinheiro liberado e notas aprovadas), sem mudar o fundo.
+3. Ligue a regra de novo.
+4. Em **Chave do gestor**, digite algo errado e clique em **Salvar e recalcular**: deve dar erro.
+5. Digite `antecipe-gestor` e salve: aparece "Regras salvas e lote recalculado".
 
-### Carregar lote demo
-**Para que serve:** ver as telas com números de exemplo, sem enviar arquivo. Os números são de demonstração e o menu avisa "Modo demonstração".
+### Passo 16: Carteira do fundo (100 mil notas)
+1. Em **Enviar notas**, marque **Carteira do fundo**.
+2. Envie o arquivo `backend\data\estoque_antecipe.csv`.
+3. Leva cerca de 10 segundos. Em **Notas**, aparece "Mostrando 300 de 100.554"; use a busca para achar as outras.
+4. Volte para **Notas para antecipar** antes de enviar outro lote.
+
+### Passo 17: Histórico
+1. Clique em **Histórico**.
+2. **Procurar uma nota:** digite `353104` e clique em **Procurar**. Aparece em quais envios a nota esteve; clique numa linha para abrir aquele envio.
+3. **Lotes validados:** clique em **Ver notas** num envio para ver as notas dele, com os motivos. Envio de carteira guarda só o resumo.
+4. **Mudanças nas regras:** aparece a versão salva no Passo 15.
+5. O gestor vê os envios de todos. A empresa vê só os dela.
+
+### Passo 18: Sessão e celular
+1. Aperte F5: você continua logado.
+2. Deixe a janela estreita (ou abra no celular pelo IP da máquina): o menu vira o botão ☰ no topo e nada vaza para os lados.
+
+Achou algo errado? Anote o passo, o que fez, o que esperava e mande um print.
 
 ---
 
-## 4. Arquivos de teste (pasta `samples/`)
+## O que é cada parte do site
 
-| arquivo | o que mostra |
+| parte | para que serve |
 |---|---|
-| `01_lote_empresarial_padrao.csv` | lote típico: 22 notas, 13 aprovadas, **R$ 184.221,52** na conta, com vários tipos de recusa e uma nota com 3 problemas |
-| `02_demo_otimizador_concentracao.csv` | cliente perto do limite: o otimizador troca uma nota longa por duas curtas, **+R$ 1.620.133,33** e 2 notas salvas |
-| `03_demo_radar_antifraude.csv` | nota repetida, notas já compradas pelo fundo e **3 alertas de fraude** (já vendidas a outros fundos) |
-| `backend/data/estoque_antecipe.csv` | carteira inteira (100.554 notas), para o modo **Carteira do fundo** |
-
-Os valores acima são com taxa de 2% ao mês e a data padrão (22/10/2026).
-
----
-
-## 5. Roteiro de teste (marque cada item)
-
-- [ ] Página inicial abre; rolar para baixo leva ao login
-- [ ] Senha errada mostra "E-mail ou senha incorretos"
-- [ ] Entrar como **Empresa**: não aparece "Regras do fundo"
-- [ ] Enviar `01`: Resumo com R$ 184,2 mil; Estatística com grupos que somam 100%
-- [ ] Clicar num grupo da Estatística abre as notas daquele problema
-- [ ] Abrir uma nota recusada mostra "Como resolver"
-- [ ] Baixar aprovadas e Relatório de recusas abrem no Excel
-- [ ] Análise de perda: R$ 50.000 em 60 dias recebe R$ 48.000
-- [ ] Enviar uma pasta com dois CSVs: vira um lote só
-- [ ] Enviar `03`: aba "Suspeita de fraude" com 3 notas
-- [ ] Sair e entrar como **Gestor**: a gaveta abre; o lote anterior não aparece mais
-- [ ] Enviar `02` e conferir o ganho do otimizador (+R$ 1,6 mi)
-- [ ] Testar sem salvar (desligar uma regra) mostra o efeito; salvar com chave errada dá erro; com a certa, salva
-- [ ] Carteira do fundo com o estoque: termina em cerca de 10 s e mostra "300 de 100.554"
-- [ ] Histórico: procurar a nota 353104, abrir um envio antigo, ver a mudança de regras
-- [ ] F5 mantém o login; "Sair" volta ao login
-- [ ] Celular (ou janela estreita): menu ☰ funciona e nada vaza para os lados
-
-Achou algo errado? Anote a tela, o que fez, o que esperava e um print.
+| **Página inicial** | explica o sistema; rolar ou clicar no menu de cima leva ao login |
+| **Login** | escolhe o perfil (empresa ou gestor); dura 8 horas e continua valendo depois do F5 |
+| **Menu lateral** | navega entre as telas; mostra quanto cai na conta, quantas notas foram recusadas e se a análise está ligada |
+| **Enviar notas** | manda um arquivo, vários arquivos ou uma pasta. "Notas para antecipar" é o uso normal; "Carteira do fundo" analisa o estoque inteiro. Também dá para mudar a data, a taxa e ligar ou desligar o Otimizar |
+| **Resumo** | extrato de quanto cai na conta hoje, notas aprovadas, ganho do otimizador e alerta de fraude |
+| **Estatística** | por que as notas foram recusadas (grupos que somam 100%, com quanto cada correção libera), liquidez, valor por problema e vencimentos |
+| **Análise de perda** | quanto custa esperar: digite um valor e um prazo e veja quanto recebe e quanto perde |
+| **Notas** | nota por nota, com busca, abas, explicação de cada recusa e as planilhas para baixar |
+| **Histórico** | envios anteriores salvos no servidor, busca de nota por número e mudanças de regras |
+| **Regras do fundo** | só o gestor: liga, desliga e ajusta as regras, testa o efeito e salva sem reiniciar nada |
+| **Carregar lote demo** | mostra as telas com números de exemplo, sem enviar arquivo |
 
 ---
 
-## 6. Ver só o design, sem servidor
-
-Para mexer na aparência sem Docker:
+## Ver só o design, sem Docker
 
 ```powershell
 cd $HOME\Documents\KanaBootCamp\frontend
@@ -180,20 +189,20 @@ $env:VITE_USE_MOCK="true"
 npm run dev
 ```
 
-Abra http://localhost:5173. O login aceita **qualquer senha** e as telas usam o lote de demonstração. Envio de arquivo real, Histórico e salvar regras precisam do servidor. Esse modo vale só para aquela janela do PowerShell e não afeta o site de verdade.
+Abra http://localhost:5173. O login aceita qualquer senha e as telas usam o lote de demonstração. Envio de arquivo real, Histórico e salvar regras precisam do Docker ligado.
 
 ---
 
-## 7. Problemas comuns
+## Problemas comuns
 
-| sintoma | causa e solução |
+| o que aparece | o que fazer |
 |---|---|
-| "Falha de conexão com a API" no login | o servidor não está rodando. Abra o Docker Desktop e rode `docker compose up -d --build`; confira com `docker compose ps` |
-| "E-mail ou senha incorretos" com a senha certa | falta `BANCA_SENHA` ou `CEDENTE_SENHA` no `.env`, ou o perfil escolhido não é o da conta. Corrija o `.env` e rode `docker compose up -d --build` |
-| site não abre em localhost:5173 | um `npm run dev` está usando a porta. Feche-o (Ctrl+C) e rode o compose de novo |
-| "estes números não são do seu arquivo" | o servidor caiu no meio; ligue-o e envie de novo |
-| salvar regras dá erro de chave | digite em "Chave do gestor" exatamente a `ADMIN_API_KEY` do `.env` |
-| todo mundo deslogado depois de reiniciar | falta `SESSAO_SEGREDO` no `.env` |
-| na VPS o site não fala com a API | `VITE_API_URL` no `.env` precisa ser `http://IP-DA-VPS:8000/api/v1`, e depois `docker compose up -d --build` |
-| na VPS Linux o `backend` não fica healthy e o log diz `unable to open database file` | o container roda como usuário 1000 e não consegue gravar o banco em `backend/data`. Na VPS, rode `sudo chown -R 1000:1000 backend/data` e `docker compose up -d` |
-| quero zerar o histórico | `docker compose down`, apague `backend/data/historico.db` e suba de novo |
+| "Falha de conexão com a API" no login | o Docker não está ligado. Abra o Docker Desktop e rode `docker compose up -d --build` |
+| "E-mail ou senha incorretos" com a senha certa | o `.env` não está igual ao do Passo 2, ou o perfil escolhido não é o da conta. Corrija e rode `docker compose up -d --build` |
+| o site não abre em localhost:5173 | um `npm run dev` está ocupando o endereço. Feche-o com Ctrl+C e rode o Passo 3 de novo |
+| "estes números não são do seu arquivo" | o servidor caiu no meio. Rode `docker compose ps`, ligue de novo e reenvie |
+| salvar regras dá erro de chave | digite `antecipe-gestor` em "Chave do gestor" |
+| `backend` não fica healthy | rode `docker compose logs backend --tail 30` e mande o print no grupo |
+| na VPS Linux, o log diz `unable to open database file` | o container não tem permissão de gravar na pasta. Na VPS: `sudo chown -R 1000:1000 backend/data` e depois `docker compose up -d` |
+| na VPS, o site não fala com a API | no `.env` da VPS, use `VITE_API_URL=http://IP-DA-VPS:8000/api/v1` e rode `docker compose up -d --build` |
+| quero zerar o histórico | `docker compose down`, apague os arquivos `backend\data\historico.db*` e rode o Passo 3 |
