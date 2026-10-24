@@ -1,6 +1,5 @@
-import { useState } from "react";
-import { AlertTriangle, ArrowRight, BarChart3, CheckCircle2, Handshake, ListChecks, Loader2, Sparkles } from "lucide-react";
-import type { MetaLote, RespostaLiquidacao, ResumoLote } from "../../types/api";
+import { AlertTriangle, ArrowRight, BarChart3, CheckCircle2, ListChecks, Loader2, ShieldCheck, Sparkles } from "lucide-react";
+import type { MetaLote, ResumoLote } from "../../types/api";
 import { formatarMoeda, formatarPercentual } from "../../utils/formatters";
 
 interface TelaResumoProps {
@@ -11,71 +10,10 @@ interface TelaResumoProps {
   nomeLote: string | null;
   replayIdempotente: boolean;
   onIr: (destino: "estatistica" | "notas", motivo?: string | null) => void;
-  /** contratar a antecipação deste lote (ausente = modo demonstração ou servidor desligado) */
-  onLiquidar?: () => Promise<void>;
-  liquidacao?: RespostaLiquidacao | null;
-}
-
-/** Último passo: a empresa confirma e o fundo compra as notas aprovadas. Pede confirmação antes. */
-function Contratar({ resumo, onLiquidar, liquidacao }: { resumo: ResumoLote; onLiquidar?: () => Promise<void>; liquidacao?: RespostaLiquidacao | null }) {
-  const [confirmando, setConfirmando] = useState(false);
-  const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-  if (resumo.qtd_aprovadas === 0) return null;
-
-  if (liquidacao) {
-    return (
-      <div role="status" className="flex items-start gap-3 rounded-3xl border border-emerald-300 bg-emerald-50 p-5 text-emerald-950">
-        <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
-        <div>
-          <p className="font-semibold">{liquidacao.status === "LIQUIDADO" ? "Antecipação contratada" : "Este lote já tinha sido contratado"}</p>
-          <p className="text-sm">
-            {liquidacao.status === "LIQUIDADO"
-              ? `${liquidacao.qtd_titulos_comprados ?? resumo.qtd_aprovadas} notas compradas pelo fundo · ${formatarMoeda(resumo.valor_liquido_receber)}${liquidacao.liquidado_em ? ` · ${liquidacao.liquidado_em.replace(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2}).*$/, "$3/$2/$1 às $4")}` : ""}`
-              : "As notas já foram compradas antes. Enviar as mesmas notas de novo agora aparece como \"já comprada\"."}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const contratar = async () => {
-    if (!onLiquidar) return;
-    setEnviando(true);
-    setErro(null);
-    try {
-      await onLiquidar();
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : "Não foi possível contratar agora.");
-    } finally {
-      setEnviando(false);
-      setConfirmando(false);
-    }
-  };
-
-  return (
-    <div className="rounded-3xl border border-creme-linha bg-creme-claro p-5 shadow-card">
-      <p className="flex items-center gap-2 font-semibold text-slate-900"><Handshake className="h-5 w-5 text-emerald-700" /> Contratar a antecipação</p>
-      <p className="mt-1 text-sm text-slate-600">
-        {onLiquidar
-          ? `O fundo compra as ${resumo.qtd_aprovadas} notas aprovadas e você recebe ${formatarMoeda(resumo.valor_liquido_receber)}. As recusadas ficam com você.`
-          : "Disponível quando o lote é analisado pelo servidor (não no modo demonstração)."}
-      </p>
-      {erro && <p role="alert" className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{erro}</p>}
-      {onLiquidar && (confirmando ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={contratar} disabled={enviando} className="btn btn-emerald px-4 py-2 text-sm">
-            {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Confirmar contratação
-          </button>
-          <button type="button" onClick={() => setConfirmando(false)} disabled={enviando} className="btn btn-secondary px-4 py-2 text-sm">Cancelar</button>
-        </div>
-      ) : (
-        <button type="button" onClick={() => setConfirmando(true)} className="btn btn-emerald mt-3 px-4 py-2 text-sm">
-          Contratar por {formatarMoeda(resumo.valor_liquido_receber)}
-        </button>
-      ))}
-    </div>
-  );
+  onLiquidar?: () => void;
+  onVerComprovante?: () => void;
+  liquidando?: boolean;
+  loteLiquidado?: boolean;
 }
 
 export function Cabecalho({ titulo, sub }: { titulo: string; sub: string }) {
@@ -101,7 +39,19 @@ function Linha({ rotulo, detalhe, valor, negativo }: { rotulo: string; detalhe: 
   );
 }
 
-export function TelaResumo({ resumo, meta, demo, motorDesligado, nomeLote, replayIdempotente, onIr, onLiquidar, liquidacao }: TelaResumoProps) {
+export function TelaResumo({
+  resumo,
+  meta,
+  demo,
+  motorDesligado,
+  nomeLote,
+  replayIdempotente,
+  onIr,
+  onLiquidar,
+  onVerComprovante,
+  liquidando = false,
+  loteLiquidado = false,
+}: TelaResumoProps) {
   const pctAprov = resumo.total_notas ? resumo.qtd_aprovadas / resumo.total_notas : 0;
   const dia = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
   return (
@@ -125,12 +75,55 @@ export function TelaResumo({ resumo, meta, demo, motorDesligado, nomeLote, repla
             <Linha rotulo="Ficou de fora" detalhe={`${resumo.qtd_recusadas.toLocaleString("pt-BR")} notas recusadas pelas regras do fundo`} valor={resumo.valor_bruto_recusado} negativo />
             <Linha rotulo="Custo da antecipação" detalhe={`${formatarPercentual(meta.taxa_mensal_aplicada, true)} ao mês · prazo médio de ${dia(resumo.prazo_medio_ponderado_dias)} dias`} valor={resumo.desagio_total} negativo />
           </div>
-          <div className="mt-2 rounded-2xl bg-floresta p-5 text-creme">
-            <p className="text-sm text-creme/70">Na sua conta hoje</p>
-            <p className="mt-1 font-display text-4xl font-semibold tabular-nums tracking-tight sm:text-5xl">{formatarMoeda(resumo.valor_liquido_receber)}</p>
-            <p className="mt-2 text-sm text-creme/70">
-              {resumo.valor_bruto_total > 0 ? `${dia((resumo.valor_liquido_receber / resumo.valor_bruto_total) * 100)}% do valor enviado` : "—"}
-            </p>
+          <div className="mt-2 rounded-2xl bg-floresta p-5 text-creme flex flex-col gap-4">
+            <div>
+              <p className="text-sm text-creme/70">Na sua conta hoje</p>
+              <p className="mt-1 font-display text-4xl font-semibold tabular-nums tracking-tight sm:text-5xl">{formatarMoeda(resumo.valor_liquido_receber)}</p>
+              <p className="mt-2 text-sm text-creme/70">
+                {resumo.valor_bruto_total > 0 ? `${dia((resumo.valor_liquido_receber / resumo.valor_bruto_total) * 100)}% do valor enviado` : "—"}
+              </p>
+            </div>
+
+            {/* Ação principal: Confirmar e Liquidar Lote Aprovado */}
+            <div className="border-t border-white/10 pt-3">
+              {loteLiquidado ? (
+                <div className="flex items-center justify-between gap-2 rounded-xl bg-emerald-500/20 border border-emerald-400/40 p-3 text-sm text-broto">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-broto shrink-0" />
+                    <span className="font-semibold">Lote Liquidado e Pago!</span>
+                  </div>
+                  {onVerComprovante && (
+                    <button
+                      type="button"
+                      onClick={onVerComprovante}
+                      className="rounded-lg bg-emerald-950/60 px-3 py-1.5 text-xs font-bold text-creme hover:bg-emerald-950 transition-colors"
+                    >
+                      Ver Comprovante
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  id="btn-confirmar-liquidar"
+                  disabled={liquidando || resumo.qtd_aprovadas === 0 || resumo.valor_liquido_receber <= 0}
+                  onClick={onLiquidar}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-broto px-5 py-3 text-sm font-bold text-floresta shadow-md transition-all hover:bg-emerald-300 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                >
+                  {liquidando ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin text-floresta" />
+                      <span>Liquidando Operação...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="h-4 w-4 text-floresta" />
+                      <span>Confirmar e Liquidar Lote Aprovado</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
           <p className="mt-4 text-xs text-slate-400">
             Analisado em {dia(meta.tempo_processamento_ms)} ms{replayIdempotente ? " · mesmo arquivo de antes, resposta reaproveitada" : ""}
@@ -154,8 +147,6 @@ export function TelaResumo({ resumo, meta, demo, motorDesligado, nomeLote, repla
               </div>
             </div>
           </div>
-
-          <Contratar resumo={resumo} onLiquidar={demo || motorDesligado ? undefined : onLiquidar} liquidacao={liquidacao} />
 
           {meta.ganho_otimizador_reais > 0 && (
             <div className="flex items-start gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-900">

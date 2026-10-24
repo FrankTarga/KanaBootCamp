@@ -327,11 +327,42 @@ export interface OcorrenciaNota {
   codigos_erro: string[];
 }
 
-/** POST /batches/{batch_hash}/liquidate: efetiva a compra das notas aprovadas (transação ACID). */
-export interface RespostaLiquidacao {
+/** Lote registrado no banco SQLite (lotes_operacoes) */
+export interface OperacaoLote {
+  batch_hash: string;
+  criado_em: string;
+  liquidado_em: string | null;
+  cedente_nome: string;
+  cedente_doc: string;
+  data_base_utilizada: string;
+  taxa_mensal: number;
+  total_notas: number;
+  qtd_aprovadas: number;
+  qtd_recusadas: number;
+  valor_bruto_total: number;
+  valor_liquido_aprovado: number;
+  ganho_otimizador: number;
+  status_operacao: "SIMULADO" | "LIQUIDADO" | "CANCELADO";
+}
+
+/** Resposta do endpoint POST /batches/{batch_hash}/liquidate */
+export interface ResultadoLiquidacao {
   batch_hash: string;
   status: "LIQUIDADO" | "JA_LIQUIDADO";
   liquidado_em?: string;
-  qtd_titulos_comprados?: number;
   mensagem?: string;
+  qtd_titulos_comprados?: number;
+  titulos_comprados?: Array<{
+    hash_titulo: string;
+    nu_documento: string;
+    nome_cedente: string;
+    nome_sacado: string;
+    valor_nominal: number;
+    valor_liquido: number;
+    desagio_reais: number;
+    data_vencimento: string;
+    doc_cedente?: string;
+    doc_sacado?: string;
+  }>;
 }
+

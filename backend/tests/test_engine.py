@@ -409,7 +409,7 @@ def receita_fake():
             self.end_headers()
             self.wfile.write(_json.dumps(corpo).encode())
 
-        def log_message(self, *args):
+        def log_message(self, format, *args):
             pass
 
     servidor = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -445,3 +445,70 @@ def test_prazo_minimo_de_cobranca(engine):
     assert hoje.status == "APROVADA" and hoje.prazo_dias == 0
     assert hoje.desagio_reais == 33.33  # 10.000 x 2% x 5/30
     assert dez_dias.desagio_reais == 66.67
+
+
+# ---------------------------------------------------------------------------
+# Testes Automatizados Principais (Upgrade B)
+# ---------------------------------------------------------------------------
+
+def test_calculo_desagio_data_base_quinta_feira(engine):
+    """1. Valida o cálculo exato do deságio comercial com data-base padrão em uma quinta-feira (22/10/2026)."""
+    data_quinta = date(2026, 10, 22)
+    assert data_quinta.weekday() == 3  # quinta-feira
+    lote = montar_csv(linha_csv(SACADO_LIVRE, "QTA1", "10.000,00", "21/11/2026"))
+    r = engine.validar_lote(lote, data_base=data_quinta)
+    item = r.itens[0]
+    assert item.status == "APROVADA"
+    assert item.prazo_dias == 30
+    assert item.desagio_reais == 200.0  # 10.000 x 2% x 30/30
+    assert item.valor_liquido == 9800.0
+    assert r.resumo.valor_liquido_receber == 9800.0
+
+
+def test_concentracao_acumulativa_intra_lote(engine):
+    """2. Shadow Ledger: acumula exposição das notas anteriores do mesmo sacado dentro do lote."""
+    lote = montar_csv(*(linha_csv(SACADO_CONCENTRADO, f"C{i}", "5000,00", "21/11/2026") for i in range(3)))
+    r = engine.validar_lote(lote, otimizar_lote=False)
+    assert [i.status for i in r.itens] == ["APROVADA", "APROVADA", "RECUSADA"]
+    erro = r.itens[2].erros[0]
+    assert erro.codigo == "CONCENTRACAO_MAXIMA_SACADO"
+    assert "Espaço ainda disponível" in erro.mensagem_empresa
+
+
+def test_radar_antifraude_outro_fundo(engine):
+    """3. Triplo Radar: identifica título já negociado em outro fundo e recusa com severidade FRAUDE."""
+    sac_o, nu_o, valor_o, venc_o = TITULO_OUTRO_FUNDO
+    lote = montar_csv(linha_csv(sac_o, nu_o, valor_o, venc_o))
+    r = engine.validar_lote(lote)
+    item = r.itens[0]
+    assert item.status == "RECUSADA"
+    assert item.severidade == "FRAUDE"
+    assert codigos(item) == ["FRAUDE_OUTRO_FUNDO"]
+    assert "MARÉ ALTA DUPLICATAS FIDC" in item.erros[0].mensagem_empresa
+    assert r.resumo.qtd_alertas_fraude == 1
+
+
+def test_otimizador_lote_aumenta_valor_liquido(engine):
+    """4. Smart Batch Optimizer reordena os títulos do lote para maximizar o valor líquido a receber."""
+    cfg = config_com(engine, "CONCENTRACAO_MAXIMA_SACADO", percentual_maximo=None, valor_maximo=6000.0)
+    lote = montar_csv(
+        linha_csv(SACADO_OTIMIZADOR, "O1", "5000,00", "21/12/2026"),
+        linha_csv(SACADO_OTIMIZADOR, "O2", "3000,00", "01/11/2026"),
+        linha_csv(SACADO_OTIMIZADOR, "O3", "3000,00", "03/11/2026"),
+    )
+    sem = engine.validar_lote(lote, config=cfg, otimizar_lote=False)
+    com = engine.validar_lote(lote, config=cfg, otimizar_lote=True)
+    assert com.resumo.valor_liquido_receber > sem.resumo.valor_liquido_receber
+    assert com.meta.ganho_otimizador_reais > 0
+    assert com.meta.qtd_notas_salvas_otimizador == 2
+
+
+def test_hot_reload_validadores_sem_deploy(engine):
+    """5. Zero-Deploy: alteração atômica de regras recarrega em memória sem reiniciar o servidor."""
+    cfg_mod = config_com(engine, "VALOR_MINIMO", valor_minimo=500.0)
+    atualizada = engine.atualizar_config(cfg_mod)
+    assert engine.versao_config == 2
+    lote = montar_csv(linha_csv(SACADO_LIVRE, "H1", "200,00", "21/11/2026"))
+    r = engine.validar_lote(lote)
+    assert r.itens[0].status == "RECUSADA"
+    assert codigos(r.itens[0]) == ["VALOR_MINIMO"]
