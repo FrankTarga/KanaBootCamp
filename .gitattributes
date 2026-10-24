@@ -1,0 +1,6 @@
+# Repositório sempre em LF (Windows gravava CRLF e o diff virava o arquivo inteiro)
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.zip binary

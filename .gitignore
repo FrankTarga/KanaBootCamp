@@ -27,3 +27,5 @@ Thumbs.db
 # Claude Code (configs locais por máquina)
 .claude/settings.local.json
 .claude/launch.json
+.coverage
+htmlcov/
