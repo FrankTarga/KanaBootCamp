@@ -25,7 +25,7 @@ O Docker liga o sistema inteiro (site, servidor e banco de dados) com um único 
 4. Abra o **Docker Desktop** pelo menu Iniciar, aceite os termos e pule o login (pode clicar em "Skip" ou "Continue without signing in").
 5. Espere aparecer **"Engine running"**, com a bolinha verde, no canto inferior esquerdo. Pronto.
 
-> Se aparecer um aviso sobre **WSL**, abra o PowerShell como administrador, rode `wsl --update`, reinicie e abra o Docker Desktop de novo.
+> Se aparecer um aviso sobre **WSL**: clique com o botão direito no PowerShell, escolha **Executar como administrador** e rode `wsl --install` (ou `wsl --update`, se ele disser que já está instalado). Reinicie o computador e abra o Docker Desktop de novo.
 
 **Mac:** baixe em https://www.docker.com/products/docker-desktop/ escolhendo **Apple Silicon** (M1, M2, M3...) ou **Intel**, arraste para Aplicativos, abra e espere "Engine running".
 
@@ -33,7 +33,11 @@ O Docker liga o sistema inteiro (site, servidor e banco de dados) com um único 
 
 ### Passo 2: Baixar o projeto
 
-**Jeito mais fácil (sem Git):** entre em https://github.com/FrankTarga/KanaBootCamp, clique no botão verde **Code** e depois em **Download ZIP**. Extraia o ZIP na pasta **Documentos** e renomeie a pasta extraída para `KanaBootCamp`.
+**Jeito mais fácil (sem Git):**
+1. Entre em https://github.com/FrankTarga/KanaBootCamp, clique no botão verde **Code** e depois em **Download ZIP**.
+2. Abra a pasta **Downloads**, clique com o botão direito em `KanaBootCamp-main.zip` e escolha **Extrair tudo...**.
+3. Em "Os arquivos serão extraídos para esta pasta", troque o caminho por `C:\Users\SEU-USUÁRIO\Documents` (ou clique em **Procurar** e escolha **Documentos**) e clique em **Extrair**.
+4. Dentro de **Documentos** vai aparecer a pasta `KanaBootCamp-main`. Renomeie para **`KanaBootCamp`**. Abra-a e confira: lá dentro devem estar `docker-compose.yml`, `README.md` e as pastas `backend`, `frontend` e `samples`. (Se aparecer só outra pasta `KanaBootCamp-main` dentro, a extração criou uma pasta a mais: use a de dentro.)
 
 **Com Git** (se já tiver instalado):
 ```powershell
@@ -49,9 +53,11 @@ git clone https://github.com/FrankTarga/KanaBootCamp.git
   ```
 - **Mac/Linux:** abra o **Terminal** e digite `cd ~/Documents/KanaBootCamp`
 
+Para ter certeza de que está no lugar certo, digite `ls` e aperte Enter: precisam aparecer `docker-compose.yml` e `.env.example`. Se aparecer "não foi possível encontrar o caminho", confira o nome da pasta do Passo 2.
+
 ### Passo 4: Criar o arquivo de configuração (`.env`)
 
-O sistema lê as senhas de um arquivo chamado `.env`. O projeto já traz um modelo pronto, o `.env.example`; basta copiá-lo com o nome `.env`. No terminal, dentro da pasta do projeto:
+O sistema lê as senhas de um arquivo chamado `.env`. O arquivo que vem do GitHub se chama `.env.example` e já tem tudo preenchido; basta fazer uma cópia dele com o nome `.env`. No terminal, dentro da pasta do projeto:
 
 - **Windows (PowerShell):**
   ```powershell
@@ -74,11 +80,19 @@ Com o Docker Desktop aberto ("Engine running"):
 docker compose up -d --build
 ```
 
-Na primeira vez leva **de 2 a 5 minutos** (ele baixa e monta tudo). No fim aparecem `antecipe-mock-receita Healthy`, `antecipe-backend Healthy` e `antecipe-frontend Started`. Para conferir a qualquer momento: `docker compose ps`.
+Na primeira vez leva **de 2 a 5 minutos** (ele baixa e monta tudo; a tela vai encher de linhas azuis, é normal). No fim aparecem:
+
+```
+✔ Container antecipe-mock-receita  Healthy
+✔ Container antecipe-backend       Healthy
+✔ Container antecipe-frontend      Started
+```
+
+Para conferir a qualquer momento: `docker compose ps`. Se aparecer **"docker não é reconhecido"**, o Docker Desktop não está aberto: abra-o, espere "Engine running", feche e abra o PowerShell de novo e repita os Passos 3 e 5.
 
 ### Passo 6: Abrir o site e entrar
 
-Abra **http://localhost:5173** no navegador. Role a página inicial para baixo até a tela de login:
+Abra **http://localhost:5173** no navegador (Chrome, Edge ou Firefox). Aparece a página inicial: role para baixo ou clique em **Começar** e a tela desce até o login. Lá, **clique no perfil** (Empresa ou Gestor), o e-mail já vem preenchido, **digite a senha** e clique em **Entrar**:
 
 | perfil (escolha na tela) | e-mail | senha | pode |
 |---|---|---|---|
@@ -92,7 +106,7 @@ Esses são os valores do `.env.example`. Se a equipe trocou as senhas no `.env`,
 ### Passo 7: Primeiro uso em 3 minutos
 
 1. Entre como **Empresa**.
-2. No menu lateral, clique em **Enviar notas** e arraste o arquivo `samples\01_lote_empresarial_padrao.csv` (está dentro da pasta do projeto) para a caixa.
+2. No menu lateral, clique em **Enviar notas**. Abra a pasta do projeto no Explorador de Arquivos, entre na pasta **`samples`** e arraste o arquivo **`01_lote_empresarial_padrao.csv`** para a caixa "Solte a pasta aqui" (ou clique em **Escolher arquivos** e selecione-o).
 3. O **Resumo** aparece sozinho: **R$ 184.221,52** na conta hoje, 13 de 22 notas aprovadas.
 4. No cartão verde do valor líquido, clique em **Confirmar e Liquidar Lote Aprovado**: o fundo compra as 13 notas e aparece o **Comprovante de Liquidação** (estilo PIX/TED), com o valor liberado, o cedente, os títulos e o protocolo.
 5. Clique em **Ver no Histórico** (ou em **Histórico de Lotes** no menu): a operação aparece como **Liquidado**.
@@ -103,6 +117,7 @@ Esses são os valores do `.env.example`. Se a equipe trocou as senhas no `.env`,
 - Desligar: `docker compose down`
 - Ligar de novo (rápido, já está montado): `docker compose up -d`
 - Atualizar para a versão mais nova: baixe o projeto de novo (ou `git pull`) e rode `docker compose up -d --build`
+- Da próxima vez que ligar o computador: abra o Docker Desktop, depois o PowerShell, e rode os Passos 3 e `docker compose up -d`
 
 ## Como usar cada parte do site
 
