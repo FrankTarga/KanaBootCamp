@@ -82,7 +82,7 @@ Segue a spec à risca. Extras retrocompatíveis:
 
 ## Modo carteira
 
-`POST /api/v1/portfolio/validate` e `python -m app.validar_carteira <estoque.csv> [saida.json]` reproduzem o gabarito `resultado_esperado_100k.json` (prazo pela `DATA_AQUISICAO` da linha, concentração estática por fundo, sem radar de duplicidade). Detalhes no README principal.
+`POST /api/v1/batches/validate` com `modo=carteira` (resposta completa, para a tela), `POST /api/v1/portfolio/validate` e `python -m app.validar_carteira <estoque.csv> [saida.json]` reproduzem o gabarito `resultado_esperado_100k.json` (prazo pela `DATA_AQUISICAO` da linha, concentração estática por fundo, sem radar de duplicidade). Detalhes no README principal.
 
 ## Interface com o Estatístico (`app/quant_analytics.py`)
 

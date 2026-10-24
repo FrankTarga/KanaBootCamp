@@ -29,7 +29,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
+from .analise_recusas import analisar_recusas
 from .api_schemas import (
+    AnaliseRecusas,
     BatchValidationResponse,
     ContagemMotivo,
     ErroNota,
@@ -873,9 +875,10 @@ def ler_lote_csv(conteudo: bytes, max_linhas: int | None = None) -> list[tuple[i
             registro[coluna] = valor
         registros.append((inicio + leitor.line_num, registro))
         if max_linhas is not None and len(registros) > max_linhas:
+            limite = f"{max_linhas:,}".replace(",", ".")
             raise ErroArquivoLote(
-                f"O arquivo tem mais de {max_linhas:,} notas, o limite por lote. Divida a planilha em lotes menores."
-                .replace(",", ".")
+                f"O arquivo tem mais de {limite} notas, o limite por lote. Divida a planilha em lotes menores "
+                "ou, para conferir uma carteira inteira, use o modo carteira."
             )
     if not registros:
         raise ErroArquivoLote("O arquivo não tem nenhuma nota abaixo do cabeçalho.")
@@ -953,6 +956,54 @@ def montar_linha(
 # ---------------------------------------------------------------------------
 # Motor
 # ---------------------------------------------------------------------------
+
+def _erro_formato(linha: LinhaLote) -> ErroValidacao:
+    return ErroValidacao(
+        CODIGO_FORMATO,
+        TITULO_FORMATO,
+        f"Não foi possível ler esta linha: {'; '.join(linha.problemas_formato)}.",
+        "Corrija esta linha na planilha (valores como 1.500,50 e datas como 22/10/2026) e envie o arquivo de novo.",
+        SEV_REGRA,
+        -2,
+    )
+
+
+def _mensagem_concentracao_carteira(
+    dimensao: str,
+    linha: LinhaLote,
+    fundo: str,
+    agrupamento: str,
+    soma_grupo: float,
+    total_fundo: float,
+    percentual: float,
+    pct: Any,
+    teto: Any,
+) -> tuple[str, str]:
+    """Concentração estática (modo carteira): explica com os totais do próprio arquivo."""
+    doc = linha.doc_sacado if dimensao == "sacado" else linha.doc_cedente
+    nome = (linha.nome_sacado if dimensao == "sacado" else linha.nome_cedente).strip()
+    if agrupamento == AGRUPAMENTO_RAIZ and len(doc) == 14:
+        ident = f"somando matriz e filiais, todos os CNPJs que começam com {formatar_documento(doc[:8])}"
+    else:
+        ident = formatar_documento(doc)
+    quem = f"o cliente {nome} ({ident})" if dimensao == "sacado" else f"a empresa cedente {nome} ({ident})"
+    alvo = "cliente" if dimensao == "sacado" else "empresa cedente"
+    limites = []
+    if pct is not None and percentual > float(pct) + 1e-9:
+        limites.append(f"acima do limite de {formatar_percentual(float(pct))} por {alvo}")
+    if teto is not None and soma_grupo > float(teto) + 1e-6:
+        limites.append(f"acima do teto de {formatar_brl(float(teto))} por {alvo}")
+    mensagem = (
+        f"Nas notas aceitas deste arquivo para o {fundo}, {quem} soma {formatar_brl(soma_grupo)} de "
+        f"{formatar_brl(total_fundo)}, ou seja, {formatar_percentual(percentual)} do total, {' e '.join(limites)}. "
+        f"Por isso nenhuma nota dele pode entrar."
+    )
+    acao = (
+        f"Diversifique: envie notas de outros {'clientes' if dimensao == 'sacado' else 'cedentes'} para que este "
+        f"fique dentro do limite, ou reduza o volume de notas dele no arquivo."
+    )
+    return mensagem, acao
+
 
 def _explicar_preterida(
     linha: LinhaLote,
@@ -1119,23 +1170,23 @@ class RuleEngine:
             )
         return restricoes, agrupamentos["sacado"], agrupamentos["cedente"]
 
-    def validar_carteira(self, conteudo: bytes, config: ValidadoresConfig | None = None) -> list[dict[str, Any]]:
-        """Modo carteira: julga cada linha de um estoque contra as regras do fundo.
+    def _avaliar_carteira(
+        self, conteudo: bytes, cfg: ValidadoresConfig, taxa: float
+    ) -> tuple[list[tuple[int, dict[str, str]]], list[LinhaLote], list[date], list[list[ErroValidacao]]]:
+        """Modo carteira: julga cada linha de um estoque contra as regras do fundo (formato do gabarito oficial).
 
-        Diferenças do modo lote (é o formato do gabarito resultado_esperado_100k.json):
+        Diferenças do modo lote:
         - a data de referência de cada nota é a própria DATA_AQUISICAO (sem ela, a data-base padrão);
         - concentração é estática por fundo: a raiz do sacado (ou cedente) acima do teto, medida sobre as
           notas elegíveis daquele fundo, barra todas as notas dela; só é avaliada em nota sem outro erro;
         - sem radar de duplicidade: o arquivo é o próprio estoque.
         """
-        cfg = config or self._config
-        taxa = self.taxa_configurada(cfg)
         precificacao = cfg.precificacao or PrecificacaoConfig()
         regras = [r for r in self._regras_em_uso(cfg) if not r[0].sistema]
         estaticas = [r for r in regras if not r[0].stateful]
         concentracoes = [r for r in regras if r[0].codigo.startswith("CONCENTRACAO_MAXIMA_")]
 
-        registros = ler_lote_csv(conteudo)
+        registros = ler_lote_csv(conteudo)  # sem limite de linhas: a carteira inteira é a entrada
         linhas: list[LinhaLote] = []
         fundos: list[str] = []
         datas: list[date] = []
@@ -1146,7 +1197,7 @@ class RuleEngine:
                 data_ref = self.index.data_base_padrao
             linhas.append(montar_linha(numero, registro, data_ref, taxa, precificacao))
             datas.append(data_ref)
-            fundos.append(registro["NOME_FUNDO"].strip().upper())
+            fundos.append(registro["NOME_FUNDO"].strip() or cfg.fundo.nome)
 
         consulta = any(r.codigo == "SITUACAO_CADASTRAL_SACADO" for r, _, _ in estaticas)
         docs = {l.doc_sacado for l in linhas if l.doc_sacado and diagnosticar_documento(l.doc_sacado) is None}
@@ -1155,9 +1206,7 @@ class RuleEngine:
         erros: list[list[ErroValidacao]] = []
         for linha, data_ref in zip(linhas, datas):
             ctx = ContextoValidacao(data_ref, self.index, situacoes, cfg.fundo.nome)
-            da_linha = []
-            if linha.problemas_formato:
-                da_linha.append(ErroValidacao(CODIGO_FORMATO, TITULO_FORMATO, "", "", SEV_REGRA, -2))
+            da_linha = [_erro_formato(linha)] if linha.problemas_formato else []
             for regra, params, ordem in estaticas:
                 resultado = regra.avaliar(linha, params, ctx, None)
                 if resultado:
@@ -1172,21 +1221,30 @@ class RuleEngine:
             chaves = []
             for pos, linha in enumerate(linhas):
                 doc = linha.doc_sacado if dimensao == "sacado" else linha.doc_cedente
-                chave = (fundos[pos], agrupar_documento(doc, agrupamento))
+                chave = (fundos[pos].upper(), agrupar_documento(doc, agrupamento))
                 chaves.append(chave)
                 if not erros[pos]:
-                    total[fundos[pos]] += linha.valor_nominal
+                    total[chave[0]] += linha.valor_nominal
                     grupo[chave] += linha.valor_nominal
             pct, teto = params.get("percentual_maximo"), params.get("valor_maximo")
             for pos, chave in enumerate(chaves):
                 if erros[pos]:
                     continue
-                estourou = (pct is not None and grupo[chave] / total[chave[0]] * 100 > float(pct) + 1e-9) or (
+                percentual = grupo[chave] / total[chave[0]] * 100
+                estourou = (pct is not None and percentual > float(pct) + 1e-9) or (
                     teto is not None and grupo[chave] > float(teto) + 1e-6
                 )
                 if estourou:
-                    erros[pos].append(ErroValidacao(regra.codigo, regra.titulo_amigavel, "", "", SEV_REGRA, ordem))
+                    resultado = _mensagem_concentracao_carteira(
+                        dimensao, linhas[pos], fundos[pos], agrupamento, grupo[chave], total[chave[0]], percentual, pct, teto
+                    )
+                    erros[pos].append(regra.erro(resultado, ordem))
+        return registros, linhas, datas, erros
 
+    def validar_carteira(self, conteudo: bytes, config: ValidadoresConfig | None = None) -> list[dict[str, Any]]:
+        """Modo carteira no formato exato do gabarito: [{"linha", "id", "status", "barrado_por"?}]."""
+        cfg = config or self._config
+        registros, linhas, _, erros = self._avaliar_carteira(conteudo, cfg, self.taxa_configurada(cfg))
         saida: list[dict[str, Any]] = []
         for (_, registro), linha, da_linha in zip(registros, linhas, erros):
             item: dict[str, Any] = {"linha": linha.linha_csv, "id": registro["NU_DOCUMENTO"].strip(), "status": "APROVADO"}
@@ -1203,12 +1261,25 @@ class RuleEngine:
         taxa_mensal: float | None = None,
         otimizar_lote: bool = True,
         config: ValidadoresConfig | None = None,
+        modo: str = "lote",
     ) -> BatchValidationResponse:
+        """modo="lote": notas novas contra o estoque (Shadow Ledger, otimizador, radar de duplicidade).
+        modo="carteira": regras do gabarito oficial (ver _avaliar_carteira), com a mesma resposta rica."""
         inicio = time.perf_counter()
         cfg = config or self._config
         data_base = data_base or self.index.data_base_padrao
         taxa = taxa_mensal if taxa_mensal is not None else self.taxa_configurada(cfg)
         precificacao = cfg.precificacao or PrecificacaoConfig()
+
+        if modo == "carteira":
+            _, linhas, datas, erros = self._avaliar_carteira(conteudo, cfg, taxa)
+            aprovadas = {pos for pos, e in enumerate(erros) if not e}
+            resultado = ResultadoSimulacao(
+                list(range(len(linhas))), erros, aprovadas, round(sum(linhas[p].valor_liquido for p in aprovadas), 2)
+            )
+            return self._montar_resposta(
+                conteudo, linhas, resultado, resultado, data_base, taxa, False, inicio, datas_aquisicao=datas
+            )
 
         linhas = [
             montar_linha(numero, registro, data_base, taxa, precificacao)
@@ -1225,17 +1296,7 @@ class RuleEngine:
         # Regras independentes da ordem: avaliadas uma única vez por nota.
         erros_estaticos: list[list[ErroValidacao]] = []
         for linha in linhas:
-            erros: list[ErroValidacao] = []
-            if linha.problemas_formato:
-                erros.append(ErroValidacao(
-                    CODIGO_FORMATO,
-                    TITULO_FORMATO,
-                    f"Não foi possível ler esta linha: {'; '.join(linha.problemas_formato)}.",
-                    "Corrija esta linha na planilha (valores como 1.500,50 e datas como 22/10/2026) "
-                    "e envie o arquivo de novo.",
-                    SEV_REGRA,
-                    -2,
-                ))
+            erros: list[ErroValidacao] = [_erro_formato(linha)] if linha.problemas_formato else []
             for regra, params, ordem_regra in estaticas:
                 resultado = regra.avaliar(linha, params, ctx, None)
                 if resultado:
@@ -1288,6 +1349,7 @@ class RuleEngine:
         otimizar_lote: bool,
         inicio: float,
         agrupamentos: dict[str, str] | None = None,
+        datas_aquisicao: list[date] | None = None,
     ) -> BatchValidationResponse:
         posicao = {pos: i + 1 for i, pos in enumerate(melhor.ordem)}
         data_base_txt = formatar_data_br(data_base)
@@ -1328,7 +1390,7 @@ class RuleEngine:
                 tipo_recebivel=linha.tipo_recebivel,
                 valor_nominal=linha.valor_nominal,
                 data_vencimento=linha.data_vencimento_texto,
-                data_aquisicao=data_base_txt,
+                data_aquisicao=formatar_data_br(datas_aquisicao[pos]) if datas_aquisicao else data_base_txt,
                 prazo_dias=linha.prazo_dias,
                 desagio_reais=linha.desagio_reais,
                 valor_liquido=linha.valor_liquido,
@@ -1379,4 +1441,11 @@ class RuleEngine:
             ganho_otimizador_reais=round(max(0.0, melhor.valor_liquido - original.valor_liquido), 2),
             qtd_notas_salvas_otimizador=qtd_salvas,
         )
-        return BatchValidationResponse(meta=meta, resumo=resumo, itens=itens)
+        # o painel do Estatístico lê só o essencial de cada nota (dicts leves: 100k notas sem model_dump)
+        notas_para_analise = [
+            {"status": i.status, "valor_nominal": i.valor_nominal, "valor_liquido": i.valor_liquido,
+             "erros": [{"codigo": e.codigo, "titulo_amigavel": e.titulo_amigavel} for e in i.erros]}
+            for i in itens
+        ]
+        analise = AnaliseRecusas.model_validate(analisar_recusas(notas_para_analise))
+        return BatchValidationResponse(meta=meta, resumo=resumo, itens=itens, analise_recusas=analise)

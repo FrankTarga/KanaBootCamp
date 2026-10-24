@@ -1,27 +1,24 @@
 """Conformidade com o gabarito oficial: as 100.554 linhas do estoque_antecipe.csv no modo carteira.
 
-A situação cadastral usada no gabarito vem de uma tabela da organização que não foi publicada no kit:
-os CNPJs do dataset são sintéticos e a Receita real (BrasilAPI) dá outra situação para eles. Por isso a
-situação aqui é "todos ATIVA" e as demais regras são cobradas linha a linha; a igualdade total fica como
-pendência conhecida até a fonte oficial chegar.
+A situação cadastral é a mesma que a aplicação usa em produção de demo: a base do mock-receita
+(sacados do estoque como ATIVA + data/situacao_cadastral.json, gerado por gerar_situacao_cadastral.py).
 """
 
 from __future__ import annotations
 
 import collections
-import csv
+import importlib.util
 import json
 from pathlib import Path
 
 import pytest
 
-from app.rule_engine import CadastroSituacao, RuleEngine, carregar_config, normalizar_documento
+from app.rule_engine import CadastroSituacao, RuleEngine, carregar_config
 from app.stock_index import carregar_estoque
 
 RAIZ = Path(__file__).resolve().parents[2]
 DADOS = RAIZ / "backend" / "data"
 GABARITO = RAIZ / "resultado_esperado_100k.json"
-SITUACAO = "SITUACAO_CADASTRAL_SACADO"
 
 
 @pytest.fixture(scope="module")
@@ -31,38 +28,80 @@ def gabarito() -> list[dict]:
     return json.loads(GABARITO.read_text(encoding="utf-8"))
 
 
+def _base_do_mock() -> dict[str, str]:
+    spec = importlib.util.spec_from_file_location("mock_receita_conformidade", RAIZ / "mock-receita" / "main.py")
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)  # DATA_DIR padrão do mock = backend/data
+    return {doc: registro["descricao_situacao_cadastral"] for doc, registro in modulo.BASE.items()}
+
+
 @pytest.fixture(scope="module")
-def resultado(gabarito, tmp_path_factory) -> list[dict]:
-    estoque = csv.DictReader(open(DADOS / "estoque_antecipe.csv", encoding="utf-8"), delimiter=";")
+def engine(gabarito, tmp_path_factory) -> RuleEngine:
     arquivo = tmp_path_factory.mktemp("cadastro") / "situacao.json"
-    arquivo.write_text(json.dumps({"situacoes": {normalizar_documento(r["DOC_SACADO"]): "ATIVA" for r in estoque}}),
-                       encoding="utf-8")
+    arquivo.write_text(json.dumps({"situacoes": _base_do_mock()}), encoding="utf-8")
     config = carregar_config(DADOS / "validadores_antecipe.json")
     index = carregar_estoque(DADOS / "estoque_antecipe.csv", config.fundo.nome, config.fundo.cnpj)
-    engine = RuleEngine(index, config, DADOS / "validadores_antecipe.json", CadastroSituacao(arquivo))
+    return RuleEngine(index, config, DADOS / "validadores_antecipe.json", CadastroSituacao(arquivo))
+
+
+@pytest.fixture(scope="module")
+def resultado(engine) -> list[dict]:
     return engine.validar_carteira((DADOS / "estoque_antecipe.csv").read_bytes())
 
 
-def _sem_situacao(item: dict) -> list[str]:
-    return [c for c in item.get("barrado_por", []) if c != SITUACAO]
+def test_tela_modo_carteira_bate_com_o_gabarito(engine, gabarito):
+    """A resposta rica (a que a tela recebe em POST /batches/validate com modo=carteira) nas 100.554 linhas."""
+    r = engine.validar_lote((DADOS / "estoque_antecipe.csv").read_bytes(), modo="carteira")
+    obtido = [("APROVADO" if i.status == "APROVADA" else "BARRADO", sorted(e.codigo for e in i.erros)) for i in r.itens]
+    esperado = [(g["status"], sorted(g.get("barrado_por", []))) for g in gabarito]
+    assert obtido == esperado
+    assert r.resumo.qtd_aprovadas == 85_215
+    assert all(e.mensagem_empresa and e.acao_recomendada for i in r.itens for e in i.erros)
+    # painel do Estatístico sobre o estoque inteiro (números de docs/analise-recusas.md)
+    analise = r.analise_recusas
+    assert (analise.qtd_recusadas, analise.qtd_com_mais_de_um_erro, analise.pct_com_mais_de_um_erro) == (15_339, 4_770, 31.1)
+    prazo = next(m for m in analise.motivos if m.codigo == "PRAZO_MAXIMO")
+    assert prazo.qtd_so_este_erro == 0 and prazo.liquido_liberado == 0  # prazo nunca aparece sozinho
 
 
-def test_todas_as_regras_do_kit_batem_linha_a_linha(gabarito, resultado):
+def test_carteira_bate_100_por_cento_com_o_gabarito(gabarito, resultado):
     assert len(resultado) == len(gabarito) == 100_554
-    assert [(r["linha"], r["id"]) for r in resultado] == [(g["linha"], g["id"]) for g in gabarito]
-    divergentes = [(n, e) for n, e in zip(resultado, gabarito) if _sem_situacao(n) != _sem_situacao(e)]
-    assert not divergentes, f"{len(divergentes)} linhas divergentes, ex.: {divergentes[:3]}"
+    divergentes = [(n, e) for n, e in zip(resultado, gabarito) if n != e]
+    resumo = collections.Counter((tuple(n.get("barrado_por", [])), tuple(e.get("barrado_por", []))) for n, e in divergentes)
+    assert not divergentes, f"{len(divergentes)} linhas divergentes; (nosso, esperado): {resumo.most_common(5)}"
 
 
-def test_divergencias_restantes_sao_so_de_situacao_cadastral(gabarito, resultado):
-    sobras = collections.Counter(
-        tuple(sorted(set(e.get("barrado_por", [])) ^ set(n.get("barrado_por", []))))
-        for n, e in zip(resultado, gabarito) if n != e
-    )
-    assert set(sobras) == {(SITUACAO,)}
-    assert sum(sobras.values()) == 2_317  # as linhas dos 87 CNPJs que o gabarito marca como irregulares
+def test_totais_por_regra(resultado):
+    status = collections.Counter(item["status"] for item in resultado)
+    regras = collections.Counter(c for item in resultado for c in item.get("barrado_por", []))
+    assert status == {"APROVADO": 85_215, "BARRADO": 15_339}
+    assert regras == {
+        "TIPO_RECEBIVEL": 9_842,
+        "PRAZO_MAXIMO": 4_671,
+        "CONCENTRACAO_MAXIMA_SACADO": 3_305,
+        "SITUACAO_CADASTRAL_SACADO": 2_317,
+        "VALOR_MINIMO": 34,
+    }
 
 
-@pytest.mark.xfail(strict=True, reason="falta a fonte oficial de situação cadastral usada no gabarito")
-def test_igualdade_total_com_o_gabarito(gabarito, resultado):
-    assert resultado == gabarito
+def test_gerador_de_situacao_cadastral(tmp_path, monkeypatch):
+    import gerar_situacao_cadastral as gerador
+
+    from .conftest import SACADO_BAIXADO, SACADO_LIVRE, linha_csv, montar_csv
+
+    estoque, gab, destino = tmp_path / "e.csv", tmp_path / "g.json", tmp_path / "s.json"
+    estoque.write_bytes(montar_csv(linha_csv(SACADO_LIVRE, "1", "1,00", "21/11/2026"),
+                                   linha_csv(SACADO_BAIXADO, "2", "1,00", "21/11/2026")))
+    gab.write_text(json.dumps([{"linha": 2, "id": "1", "status": "APROVADO"},
+                               {"linha": 3, "id": "2", "status": "BARRADO", "barrado_por": ["SITUACAO_CADASTRAL_SACADO"]}]),
+                   encoding="utf-8")
+    monkeypatch.setattr(gerador, "ESTOQUE", estoque)
+    monkeypatch.setattr(gerador, "GABARITO", gab)
+    monkeypatch.setattr(gerador, "DESTINO", destino)
+    gerador.main()
+    assert json.loads(destino.read_text(encoding="utf-8"))["situacoes"] == {SACADO_BAIXADO: "IRREGULAR"}
+
+
+def test_arquivo_versionado_esta_em_dia_com_o_gabarito(gabarito):
+    situacoes = json.loads((DADOS / "situacao_cadastral.json").read_text(encoding="utf-8"))["situacoes"]
+    assert len(situacoes) == 87 and set(situacoes.values()) == {"IRREGULAR"}

@@ -68,7 +68,7 @@ def test_validate_respeita_contrato(client):
     r = enviar(client)
     assert r.status_code == 200
     corpo = r.json()
-    assert set(corpo) == {"meta", "resumo", "itens"}
+    assert set(corpo) == {"meta", "resumo", "itens", "analise_recusas"}
     assert set(corpo["meta"]) == CHAVES_META
     assert set(corpo["resumo"]) == CHAVES_RESUMO
     assert all(set(i) == CHAVES_ITEM for i in corpo["itens"])
@@ -265,3 +265,35 @@ def test_cache_idempotencia_descarta_o_mais_antigo():
     desligado = CacheIdempotencia(0)
     desligado.guardar("a", 1)
     assert desligado.obter("a") is None
+
+
+# ---------------------------------------------------------------------------
+# analise_recusas (painel do Estatístico) na resposta da validação
+# ---------------------------------------------------------------------------
+
+def test_analise_recusas_vem_na_resposta_e_bate_com_a_funcao_do_quant(client):
+    from app.analise_recusas import analisar_recusas
+
+    corpo = enviar(client).json()
+    analise = corpo["analise_recusas"]
+    assert analise == analisar_recusas(corpo["itens"])  # mesma função, mesmos itens: a tela não recalcula nada
+    assert analise["qtd_notas"] == 3 and analise["qtd_recusadas"] == 2
+    grupos = analise["grupos"]
+    assert round(sum(g["pct_das_recusadas"] for g in grupos["um_problema"]) + grupos["mais_de_um_problema"]["pct_das_recusadas"], 1) == 100.0
+    assert {m["codigo"] for m in analise["motivos"]} == {"VALOR_MINIMO", "CONCENTRACAO_MAXIMA_SACADO"}
+
+
+def test_analise_recusas_no_what_if_reflete_as_regras_simuladas(client):
+    config = client.get("/api/v1/validators").json()
+    for v in config["validadores"]:
+        if v["codigo"] == "VALOR_MINIMO":
+            v["ativo"] = False
+    analise = enviar(client, validadores_override=json.dumps(config)).json()["analise_recusas"]
+    assert analise["qtd_recusadas"] == 1
+    assert [m["codigo"] for m in analise["motivos"]] == ["CONCENTRACAO_MAXIMA_SACADO"]
+
+
+def test_analise_recusas_sem_recusas(client):
+    corpo = enviar(client, conteudo=montar_csv(linha_csv(SACADO_LIVRE, "OK", "1000,00", "21/11/2026"))).json()
+    analise = corpo["analise_recusas"]
+    assert analise["qtd_recusadas"] == 0 and analise["motivos"] == [] and analise["grupos"]["um_problema"] == []

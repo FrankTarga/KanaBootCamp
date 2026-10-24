@@ -131,10 +131,78 @@ class MetaLote(BaseModel):
     qtd_notas_salvas_otimizador: int
 
 
+# Painel de recusas (contrato: docs/analise-recusas.md, dono: Estatístico). extra="allow": campo novo do
+# Quant passa adiante em vez de sumir. O front mostra os números como vêm (percentuais já fecham 100%).
+
+class _Painel(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class GrupoUmProblema(_Painel):
+    codigo: str
+    titulo_amigavel: str
+    corrigivel: bool
+    qtd: int
+    valor: float
+    pct_das_recusadas: float
+    liquido_liberado: float | None  # None = sem estimativa (ex.: nota vencida)
+
+
+class CombinacaoProblemas(_Painel):
+    codigos: list[str]
+    titulos: list[str]
+    qtd: int
+    valor: float
+    pct_do_grupo: float
+
+
+class SubgrupoProblemas(_Painel):
+    qtd_problemas: int
+    qtd: int
+    valor: float
+    pct_do_grupo: float
+    combinacoes: list[CombinacaoProblemas]
+
+
+class GrupoMaisDeUmProblema(_Painel):
+    qtd: int
+    valor: float
+    pct_das_recusadas: float
+    subgrupos: list[SubgrupoProblemas]
+
+
+class GruposRecusas(_Painel):
+    um_problema: list[GrupoUmProblema]
+    mais_de_um_problema: GrupoMaisDeUmProblema
+
+
+class MotivoRecusa(_Painel):
+    codigo: str
+    titulo_amigavel: str
+    corrigivel: bool
+    qtd_notas: int
+    valor_impactado: float
+    qtd_so_este_erro: int
+    liquido_liberado: float | None
+    pct_das_recusadas: float
+
+
+class AnaliseRecusas(_Painel):
+    qtd_notas: int
+    qtd_recusadas: int
+    pct_recusadas: float
+    valor_recusado: float
+    qtd_com_mais_de_um_erro: int
+    pct_com_mais_de_um_erro: float
+    grupos: GruposRecusas
+    motivos: list[MotivoRecusa]
+
+
 class BatchValidationResponse(BaseModel):
     meta: MetaLote
     resumo: ResumoLote
     itens: list[ItemLote]
+    analise_recusas: AnaliseRecusas
 
 
 # ---------------------------------------------------------------------------

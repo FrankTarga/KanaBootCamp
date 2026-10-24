@@ -27,11 +27,13 @@ def test_mock_responde_no_formato_da_brasilapi(pasta_dados, monkeypatch):
     assert ativo.status_code == 200
     assert ativo.json() == {"cnpj": SACADO_GRANDE, "razao_social": "CLIENTE TESTE LTDA", "descricao_situacao_cadastral": "ATIVA"}
     assert c.get(f"/api/cnpj/v1/{SACADO_BAIXADO}").json()["descricao_situacao_cadastral"] == "BAIXADA"
-    assert c.get(f"/api/cnpj/v1/{SACADO_SEM_CADASTRO}").status_code == 404
+    novo = c.get(f"/api/cnpj/v1/{SACADO_SEM_CADASTRO}")  # válido, fora do estoque: existe e está ATIVA
+    assert novo.status_code == 200 and novo.json()["descricao_situacao_cadastral"] == "ATIVA"
+    assert c.get("/api/cnpj/v1/12345678000100").status_code == 404  # DV inválido: não existe
 
 
 def test_mock_sem_arquivo_de_sobrescritas(pasta_dados, monkeypatch):
     (pasta_dados / "situacao_cadastral.json").unlink()
     c = carregar_mock(pasta_dados, monkeypatch)
-    assert c.get(f"/api/cnpj/v1/{SACADO_BAIXADO}").status_code == 404
+    assert c.get(f"/api/cnpj/v1/{SACADO_BAIXADO}").json()["descricao_situacao_cadastral"] == "ATIVA"
     assert json.loads(c.get(f"/api/cnpj/v1/{SACADO_GRANDE}").text)["descricao_situacao_cadastral"] == "ATIVA"

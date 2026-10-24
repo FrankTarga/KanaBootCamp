@@ -106,3 +106,54 @@ def test_cli_escreve_no_formato_do_gabarito(pasta_dados, monkeypatch, tmp_path, 
     ]
     assert "2 linhas, 2 barradas" in capsys.readouterr().err
     assert cli.main([]) == 2
+
+
+# ---------------------------------------------------------------------------
+# modo=carteira no POST /batches/validate (a tela usa a mesma rota do lote)
+# ---------------------------------------------------------------------------
+
+def _carteira_rica(engine, *linhas, **kwargs):
+    return engine.validar_lote(montar_csv(*linhas), modo="carteira", **kwargs)
+
+
+def test_modo_carteira_rico_tem_os_mesmos_status_do_formato_gabarito(engine):
+    linhas = [linha_csv(SACADO_GRANDE, f"G{i}", "1000,00", "20/11/2026") for i in range(17)]
+    linhas += [linha_csv(SACADO_CONCENTRADO, "C1", "1500,00", "20/11/2026"),
+               linha_csv(SACADO_LIVRE, "L1", "50,00", "20/11/2026"),
+               linha_csv(SACADO_BAIXADO, "B1", "1000,00", "20/11/2026")]
+    gabarito = julgar(engine, *linhas)
+    rico = _carteira_rica(engine, *linhas)
+    assert [("APROVADO" if i.status == "APROVADA" else "BARRADO") for i in rico.itens] == [g["status"] for g in gabarito]
+    assert [sorted(e.codigo for e in i.erros) for i in rico.itens] == [sorted(g.get("barrado_por", [])) for g in gabarito]
+    assert all(e.mensagem_empresa and e.acao_recomendada for i in rico.itens for e in i.erros)
+    assert rico.meta.otimizador_ativo is False and rico.meta.ganho_otimizador_reais == 0
+
+
+def test_modo_carteira_explica_a_concentracao_com_os_totais_do_arquivo(engine):
+    r = _carteira_rica(engine, linha_csv(SACADO_GRANDE, "U1", "1000,00", "20/11/2026"))
+    msg = r.itens[0].erros[0].mensagem_empresa
+    assert r.itens[0].erros[0].codigo == "CONCENTRACAO_MAXIMA_SACADO"
+    assert "Nas notas aceitas deste arquivo para o ANTECIPE FIDC" in msg
+    assert "soma R$ 1.000,00 de R$ 1.000,00, ou seja, 100,00% do total, acima do limite de 10,00% por cliente" in msg
+    assert "Diversifique" in r.itens[0].erros[0].acao_recomendada
+
+
+def test_modo_carteira_usa_a_aquisicao_da_linha_e_precifica(engine):
+    sem_concentracao = config_com(engine, "CONCENTRACAO_MAXIMA_SACADO", ativo=False)
+    [item] = _carteira_rica(engine, linha_csv(SACADO_GRANDE, "P1", "10000,00", "07/10/2026", aquisicao="27/04/2026"),
+                            config=sem_concentracao).itens
+    assert item.status == "APROVADA" and item.prazo_dias == 163 and item.data_aquisicao == "27/04/2026"
+    assert item.desagio_reais == round(10000 * 0.02 * 163 / 30, 2)
+
+
+def test_api_modo_carteira_sem_limite_de_linhas_do_lote(pasta_dados, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(pasta_dados))
+    monkeypatch.setenv("MAX_LINHAS_LOTE", "2")
+    monkeypatch.delenv("RECEITA_API_URL", raising=False)
+    conteudo = montar_csv(*(linha_csv(SACADO_GRANDE, f"X{i}", "1000,00", "20/11/2026") for i in range(3)))
+    with TestClient(app) as c:
+        enviar = lambda **d: c.post("/api/v1/batches/validate", files={"file": ("l.csv", conteudo, "text/csv")}, data=d)  # noqa: E731
+        assert enviar().json()["error"]["code"] == "ARQUIVO_INVALIDO"  # lote: limite de 2 notas
+        carteira = enviar(modo="carteira")
+        assert carteira.status_code == 200 and carteira.json()["resumo"]["total_notas"] == 3
+        assert enviar(modo="xyz").json()["error"]["code"] == "MODO_INVALIDO"

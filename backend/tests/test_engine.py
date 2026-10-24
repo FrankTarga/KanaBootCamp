@@ -342,10 +342,11 @@ def test_troca_de_fundo_exige_restart(engine):
 
 
 def test_limite_de_linhas_por_lote(engine):
-    engine.max_linhas_lote = 2
-    lote = montar_csv(*(linha_csv(SACADO_LIVRE, f"L{i}", "1000,00", "21/11/2026") for i in range(3)))
-    with pytest.raises(ErroArquivoLote, match="mais de 2 notas"):
+    engine.max_linhas_lote = 12_000
+    lote = montar_csv(*(linha_csv(SACADO_LIVRE, f"L{i}", "1,00", "21/11/2026") for i in range(12_001)))
+    with pytest.raises(ErroArquivoLote) as erro:
         engine.validar_lote(lote)
+    assert str(erro.value).startswith("O arquivo tem mais de 12.000 notas, o limite por lote. Divida")
 
 
 def _lote_otimizador():

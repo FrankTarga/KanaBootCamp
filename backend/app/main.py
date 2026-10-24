@@ -336,6 +336,7 @@ def validar_lote(
     taxa_mensal: str | None = Form(None, description="decimal, ex.: 0.025 = 2,5% a.m."),
     otimizar_lote: str | None = Form(None, description="true (padrão) ou false"),
     validadores_override: str | None = Form(None, description="JSON de validadores para simulação what-if (não persiste)"),
+    modo: str | None = Form(None, description="lote (padrão: notas novas contra o estoque) ou carteira (regras do gabarito oficial)"),
 ) -> BatchValidationResponse:
     settings: Settings = request.app.state.settings
     engine = _engine(request)
@@ -352,6 +353,9 @@ def validar_lote(
     taxa = _parse_taxa(taxa_mensal)
     otimizar = _parse_bool(otimizar_lote, True)
     override, assinatura_override = _parse_override(validadores_override, engine)
+    modo_validacao = (modo or "lote").strip().lower()
+    if modo_validacao not in ("lote", "carteira"):
+        raise ErroEntrada("MODO_INVALIDO", f"modo '{modo}' inválido; use lote ou carteira.")
 
     chave = (
         hashlib.sha256(conteudo).hexdigest(),
@@ -360,6 +364,7 @@ def validar_lote(
         otimizar,
         engine.assinatura_estado(),
         assinatura_override,
+        modo_validacao,
     )
     cache: CacheIdempotencia = request.app.state.cache
     em_cache = cache.obter(chave)
@@ -367,7 +372,7 @@ def validar_lote(
         response.headers["X-Idempotent-Replay"] = "true"
         return em_cache
 
-    resultado = engine.validar_lote(conteudo, data, taxa, otimizar, override)
+    resultado = engine.validar_lote(conteudo, data, taxa, otimizar, override, modo_validacao)
     cache.guardar(chave, resultado)
     response.headers["X-Idempotent-Replay"] = "false"
     logger.info(
