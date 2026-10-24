@@ -1,0 +1,53 @@
+erDiagram
+    LOTES_OPERACOES ||--o{ TITULOS_ADQUIRIDOS : "notas compradas"
+    LOTES_OPERACOES ||--o{ DOCUMENTOS_NOTAS_FISCAIS : "PDFs do lote (preparado)"
+    DOCUMENTOS_NOTAS_FISCAIS |o--o{ TITULOS_ADQUIRIDOS : "origem da nota"
+
+    LOTES_OPERACOES {
+        TEXT batch_hash PK "impressão digital do arquivo"
+        TEXT status_operacao "SIMULADO, LIQUIDADO ou CANCELADO"
+        TEXT criado_em
+        TEXT liquidado_em
+        TEXT cedente_nome
+        TEXT cedente_doc
+        REAL taxa_mensal
+        INTEGER total_notas
+        INTEGER qtd_aprovadas
+        REAL valor_liquido_aprovado
+        REAL ganho_otimizador
+        TEXT origem_lote "CSV, PDF_LOTE ou API"
+        TEXT payload_resposta_json "resultado completo"
+    }
+
+    TITULOS_ADQUIRIDOS {
+        TEXT hash_titulo PK "única: a mesma nota não é comprada 2 vezes"
+        TEXT batch_hash FK
+        TEXT doc_cedente
+        TEXT doc_sacado
+        TEXT nu_documento
+        REAL valor_nominal
+        REAL desagio_reais
+        REAL valor_liquido
+        TEXT data_vencimento
+        TEXT adquirido_em
+        INTEGER documento_id FK
+    }
+
+    DOCUMENTOS_NOTAS_FISCAIS {
+        INTEGER id PK
+        TEXT batch_hash FK
+        TEXT hash_arquivo_sha256
+        TEXT tipo_documento "NFE, NFSE, CTE ou OUTRO"
+        TEXT chave_acesso "44 dígitos da NF-e"
+        TEXT metodo_extracao
+        TEXT status_processamento
+    }
+
+    AUDITORIA_REGRAS {
+        INTEGER id PK
+        TEXT criado_em
+        TEXT usuario_email "gestor que alterou"
+        TEXT acao
+        TEXT json_anterior
+        TEXT json_novo
+    }

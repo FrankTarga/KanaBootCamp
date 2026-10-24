@@ -326,3 +326,12 @@ export interface OcorrenciaNota {
   salva_pelo_otimizador: boolean;
   codigos_erro: string[];
 }
+
+/** POST /batches/{batch_hash}/liquidate: efetiva a compra das notas aprovadas (transação ACID). */
+export interface RespostaLiquidacao {
+  batch_hash: string;
+  status: "LIQUIDADO" | "JA_LIQUIDADO";
+  liquidado_em?: string;
+  qtd_titulos_comprados?: number;
+  mensagem?: string;
+}

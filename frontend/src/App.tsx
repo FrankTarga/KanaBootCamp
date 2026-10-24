@@ -10,9 +10,9 @@ import { StatusApi } from "./components/StatusApi";
 import { TabelaRecebiveis } from "./components/TabelaRecebiveis";
 import { GavetaGestor } from "./components/GavetaGestor";
 import { LoginScreen, type Persona } from "./components/LoginScreen";
-import { validarLote, salvarValidadores, simularLoteLocal, obterHealth, sessaoAtual } from "./services/api";
+import { validarLote, salvarValidadores, simularLoteLocal, obterHealth, liquidarLote, sessaoAtual } from "./services/api";
 import { formatarMoedaCompacta } from "./utils/formatters";
-import type { BatchValidationResponse, ComparativoRegras, FonteDados, ModoValidacao, ValidadoresConfig } from "./types/api";
+import type { BatchValidationResponse, ComparativoRegras, FonteDados, ModoValidacao, RespostaLiquidacao, ValidadoresConfig } from "./types/api";
 
 const TELAS: Tela[] = ["envio", "resumo", "estatistica", "perda", "notas", "historico"];
 const telaDoEndereco = (): Tela => {
@@ -66,6 +66,8 @@ export default function App() {
   const [carregando, setCarregando] = useState<boolean>(false);
   const [erroGeral, setErroGeral] = useState<string | null>(null);
   const [motivoFiltroAtivo, setMotivoFiltroAtivo] = useState<string | null>(null);
+  // contratação (liquidação) do lote aberto: guardada pelo hash do arquivo
+  const [liquidacao, setLiquidacao] = useState<RespostaLiquidacao | null>(null);
 
   // Gaveta do gestor e comparativo what-if
   const [drawerGestorAberto, setDrawerGestorAberto] = useState<boolean>(false);
@@ -237,6 +239,7 @@ export default function App() {
     setReplayIdempotente(false);
     setComparativoRegras(null);
     setMotivoFiltroAtivo(null);
+    setLiquidacao(null);
     setErroGeral(null);
     setModo("lote");
     setOtimizarLote(true);
@@ -309,6 +312,8 @@ export default function App() {
             nomeLote={loteAtual?.nome ?? null}
             replayIdempotente={replayIdempotente}
             onIr={(destino, motivo) => (destino === "notas" ? verNotas(motivo ?? null) : irPara(destino))}
+            liquidacao={liquidacao && liquidacao.batch_hash === resultado.meta.batch_hash_idempotencia ? liquidacao : null}
+            onLiquidar={modo === "lote" ? async () => { setLiquidacao(await liquidarLote(resultado.meta.batch_hash_idempotencia)); } : undefined}
           />
         )}
 

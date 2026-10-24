@@ -9,6 +9,7 @@ import type {
   MudancaRegras,
   OcorrenciaNota,
   PaginaHistorico,
+  RespostaLiquidacao,
   OpcoesValidacao,
   ResultadoProcessamento,
   ValidadoresConfig,
@@ -293,6 +294,11 @@ export async function obterLoteHistorico(loteId: number, limite = 10_000, offset
 export async function buscarNotaHistorico(nuDocumento: string, limite = 50, offset = 0): Promise<PaginaHistorico<OcorrenciaNota>> {
   const q = encodeURIComponent(nuDocumento.trim());
   return (await requisitar<PaginaHistorico<OcorrenciaNota>>(`/historico/notas?nu_documento=${q}&limite=${limite}&offset=${offset}`)).dados;
+}
+
+/** Contrata a antecipação: o fundo compra as notas aprovadas do lote (sem fallback: precisa do servidor). */
+export async function liquidarLote(batchHash: string): Promise<RespostaLiquidacao> {
+  return (await requisitar<RespostaLiquidacao>(`/batches/${encodeURIComponent(batchHash)}/liquidate`, { method: "POST" }, 30_000)).dados;
 }
 
 /**
