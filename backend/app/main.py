@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
+import io
 import json
 import logging
 import os
@@ -17,7 +19,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, Header, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -31,6 +33,7 @@ from .database import (
     liquidar_lote_acid,
     listar_auditoria_validadores,
     listar_historico_operacoes,
+    obter_lote_operacao,
     registrar_auditoria_validadores,
     salvar_simulacao_lote,
     salvar_usuario as salvar_usuario_acid,
@@ -172,6 +175,8 @@ async def lifespan(app: FastAPI):
         max_linhas_lote=settings.max_linhas_lote,
     )
     app.state.cache = CacheIdempotencia(settings.cache_idempotencia)
+    # shortcut: trava do processo (a API roda com 1 worker); com várias réplicas, a revalidação + compra vai para o banco
+    app.state.lock_liquidacao = threading.Lock()
     app.state.historico = Historico(settings.historico_path)
 
     init_db()
@@ -328,6 +333,13 @@ def _exigir_usuario(request: Request, authorization: str | None) -> dict[str, An
 
 def _id_usuario(usuario: dict[str, Any] | None) -> int | None:
     return usuario.get("id") if usuario else None
+
+
+def _exigir_gestor(request: Request, authorization: str | None) -> dict[str, Any]:
+    usuario = _exigir_usuario(request, authorization)
+    if usuario.get("role") != "GESTOR":
+        raise ErroEntrada("SEM_PERMISSAO", "Só o gestor do fundo tem acesso a esta informação.", 403)
+    return usuario
 
 
 def _escopo(usuario: dict[str, Any]) -> int | None:
@@ -511,6 +523,8 @@ def validar_lote(
         assinatura_override,
         modo_validacao,
     )
+    # simulação do gestor (override) e carteira não viram proposta de compra
+    vira_proposta = override is None and modo_validacao == "lote"
     cache: CacheIdempotencia = request.app.state.cache
     chave_hash = hashlib.sha256(repr(chave).encode()).hexdigest()
     em_cache = cache.obter(chave)
@@ -519,6 +533,8 @@ def validar_lote(
         _registrar_historico(
             request, "registrar_lote", chave_idempotencia=chave_hash, replay=True, usuario_id=usuario_id, **numeros
         )
+        if vira_proposta:  # quem reenviou passa a poder contratar
+            _salvar_proposta(json.loads(corpo), usuario_id)
         return Response(corpo, media_type="application/json", headers={"X-Idempotent-Replay": "true"})
 
     resultado = engine.validar_lote(conteudo, data, taxa, otimizar, override, modo_validacao)
@@ -561,19 +577,79 @@ def validar_lote(
         resultado.meta.ganho_otimizador_reais,
         resultado.meta.tempo_processamento_ms,
     )
-    try:
-        salvar_simulacao_lote(resultado.model_dump(mode="json"))
-    except Exception:
-        logger.exception("falha ao salvar simulacao no banco ACID")
+    if vira_proposta:
+        _salvar_proposta(resultado.model_dump(mode="json"), usuario_id)
     return Response(corpo, media_type="application/json", headers={"X-Idempotent-Replay": "false"})
 
 
-@router.post("/batches/{batch_hash}/liquidate")
-def efetivar_compra_lote(batch_hash: str, request: Request) -> dict[str, Any]:
-    """Efetiva a compra do lote (Transação ACID) e atualiza o estoque do fundo."""
+def _salvar_proposta(payload: dict[str, Any], usuario_id: int | None) -> None:
     try:
-        resultado = liquidar_lote_acid(batch_hash)
-        engine = _engine(request)
+        salvar_simulacao_lote(payload, usuario_id=usuario_id)
+    except Exception:
+        logger.exception("falha ao salvar simulacao no banco ACID")
+
+
+_COLUNAS_REVALIDACAO = ("nome_cedente", "doc_cedente", "nome_sacado", "doc_sacado", "nu_documento", "tipo_recebivel")
+
+
+def _revalidar_para_compra(engine: RuleEngine, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Roda de novo as notas aprovadas com as regras, a carteira, a data-base e a taxa do fundo de agora.
+
+    A compra só sai se der o mesmo resultado que a empresa viu: taxa ou data escolhidas no envio, regra que mudou
+    ou outro lote comprado no meio (concentração, duplicidade) não viram compra. As recusadas não entram: elas não
+    somam exposição, então reavaliar só as aprovadas, na ordem em que foram aprovadas, reproduz o mesmo resultado.
+    """
+    aprovadas = sorted(
+        (i for i in payload.get("itens", []) if i.get("status") == "APROVADA"), key=lambda i: i.get("ordem_avaliacao", 0)
+    )
+    if not aprovadas:
+        raise ErroEntrada("LOTE_SEM_APROVADAS", "O lote não tem notas aprovadas para comprar.", 409)
+    saida = io.StringIO()
+    escritor = csv.writer(saida, delimiter=";", lineterminator="\n")
+    escritor.writerow([c.upper() for c in _COLUNAS_REVALIDACAO] + ["VALOR_NOMINAL", "DATA_VENCIMENTO_ORIGINAL"])
+    for item in aprovadas:
+        escritor.writerow(
+            [item[c] for c in _COLUNAS_REVALIDACAO] + [f"{float(item['valor_nominal']):.2f}", item["data_vencimento"]]
+        )
+    agora = engine.validar_lote(saida.getvalue().encode("utf-8"), otimizar_lote=False)
+    visto = {i["hash_titulo"]: round(float(i["valor_liquido"]), 2) for i in aprovadas}
+    atual = {i.hash_titulo: round(i.valor_liquido, 2) for i in agora.itens if i.status == "APROVADA"}
+    if atual != visto:
+        raise ErroEntrada(
+            "LOTE_DESATUALIZADO",
+            "O resultado mudou desde a validação (regras do fundo, carteira, data-base ou taxa). Valide o lote de novo, "
+            "com a data-base e a taxa padrão do fundo, para ver o valor atual. Nada foi comprado.",
+            409,
+        )
+    return aprovadas
+
+
+@router.post("/batches/{batch_hash}/liquidate")
+def efetivar_compra_lote(
+    batch_hash: str,
+    request: Request,
+    authorization: str | None = Header(None, description="Bearer <token do login>"),
+) -> dict[str, Any]:
+    """Efetiva a compra do lote (Transação ACID) e atualiza o estoque do fundo.
+    Cedente só contrata o lote que ele mesmo validou; gestor, qualquer um."""
+    usuario = _exigir_usuario(request, authorization)
+    escopo = _escopo(usuario)
+    engine = _engine(request)
+    # revalidar e comprar sem outra compra no meio: senão dois lotes que cabem sozinhos estouram a concentração juntos
+    with request.app.state.lock_liquidacao:
+        lote = obter_lote_operacao(batch_hash)
+        if lote is None or (escopo is not None and lote["usuario_id"] != escopo):
+            raise ErroEntrada("LOTE_NAO_ENCONTRADO", "Lote não encontrado: valide o arquivo antes de contratar.", 404)
+        if lote["status_operacao"] == "LIQUIDADO":
+            return liquidar_lote_acid(batch_hash)  # idempotente: devolve JA_LIQUIDADO
+        itens = _revalidar_para_compra(engine, lote["payload"])
+        try:
+            resultado = liquidar_lote_acid(batch_hash, itens, liquidado_por=_id_usuario(usuario))
+        except ValueError:
+            logger.exception("request_id=%s liquidação recusada lote=%s", request.state.request_id, batch_hash[:12])
+            raise ErroEntrada(
+                "TITULO_JA_ADQUIRIDO", "Uma ou mais notas deste lote já foram compradas pelo fundo. Nada foi comprado.", 409
+            ) from None
         # Write-Through: Atualiza a memória RAM O(1) imediatamente após o COMMIT no banco
         for item in resultado.get("titulos_comprados", []):
             engine.index.registrar_novo_titulo_antecipe(
@@ -583,22 +659,28 @@ def efetivar_compra_lote(batch_hash: str, request: Request) -> dict[str, Any]:
                 valor_nominal=float(item["valor_nominal"]),
                 data_aquisicao=item.get("data_aquisicao", "22/10/2026"),
             )
-        return resultado
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+    logger.info(
+        "request_id=%s lote=%s liquidado usuario_id=%s titulos=%s",
+        request.state.request_id, batch_hash[:12], _id_usuario(usuario), resultado.get("qtd_titulos_comprados"),
+    )
+    return resultado
 
 
 @router.get("/batches/history")
-def obter_historico_lotes() -> dict[str, Any]:
-    """Retorna os lotes simulados e liquidados persistidos no banco ACID."""
+def obter_historico_lotes(
+    request: Request, authorization: str | None = Header(None, description="Bearer <token do login>")
+) -> dict[str, Any]:
+    """Retorna os lotes simulados e liquidados persistidos no banco ACID. Só gestor (traz lotes de todas as empresas)."""
+    _exigir_gestor(request, authorization)
     return {"historico": listar_historico_operacoes()}
 
 
 @router.get("/validators/audit")
-def obter_auditoria_regras() -> dict[str, Any]:
-    """Retorna a trilha de auditoria das mudanças no motor Zero-Deploy."""
+def obter_auditoria_regras(
+    request: Request, authorization: str | None = Header(None, description="Bearer <token do login>")
+) -> dict[str, Any]:
+    """Retorna a trilha de auditoria das mudanças no motor Zero-Deploy. Só gestor."""
+    _exigir_gestor(request, authorization)
     return {"auditoria": listar_auditoria_validadores()}
 
 
@@ -672,8 +754,7 @@ def historico_regras(
     authorization: str | None = Header(None, description="Bearer <token do login>"),
 ) -> PaginaMudancasRegras:
     """Cada PUT /validators aceito, com a versão e o JSON completo das regras aplicadas. Só gestor."""
-    if _exigir_usuario(request, authorization).get("role") != "GESTOR":
-        raise ErroEntrada("SEM_PERMISSAO", "Só o gestor do fundo vê o histórico de regras.", 403)
+    _exigir_gestor(request, authorization)
     itens, total = request.app.state.historico.listar_mudancas_regras(limite, offset)
     return PaginaMudancasRegras(total=total, limite=limite, offset=offset, itens=itens)
 

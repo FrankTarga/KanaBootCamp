@@ -66,6 +66,10 @@ def _migrar_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE lotes_operacoes ADD COLUMN origem_lote TEXT NOT NULL DEFAULT 'CSV';")
     if "qtd_documentos_pdf" not in colunas_lotes:
         conn.execute("ALTER TABLE lotes_operacoes ADD COLUMN qtd_documentos_pdf INTEGER NOT NULL DEFAULT 0;")
+    if "usuario_id" not in colunas_lotes:  # quem validou: só ele (ou o gestor) pode contratar
+        conn.execute("ALTER TABLE lotes_operacoes ADD COLUMN usuario_id INTEGER;")
+    if "liquidado_por" not in colunas_lotes:
+        conn.execute("ALTER TABLE lotes_operacoes ADD COLUMN liquidado_por INTEGER;")
 
     colunas_titulos = {row["name"] for row in conn.execute("PRAGMA table_info(titulos_adquiridos)").fetchall()}
     if "chave_acesso" not in colunas_titulos:
@@ -97,7 +101,9 @@ def init_db():
                 status_operacao TEXT NOT NULL CHECK (status_operacao IN ('SIMULADO', 'LIQUIDADO', 'CANCELADO')),
                 origem_lote TEXT NOT NULL DEFAULT 'CSV' CHECK (origem_lote IN ('CSV', 'PDF_LOTE', 'API')),
                 qtd_documentos_pdf INTEGER NOT NULL DEFAULT 0 CHECK (qtd_documentos_pdf >= 0),
-                payload_resposta_json TEXT NOT NULL
+                payload_resposta_json TEXT NOT NULL,
+                usuario_id INTEGER,
+                liquidado_por INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS documentos_notas_fiscais (
@@ -174,7 +180,8 @@ def init_db():
 def salvar_simulacao_lote(
     payload_validacao: dict[str, Any],
     origem_lote: str = "CSV",
-    qtd_documentos_pdf: int = 0
+    qtd_documentos_pdf: int = 0,
+    usuario_id: int | None = None,
 ) -> dict[str, Any]:
     """Salva ou atualiza uma simulação de lote de forma atômica.
 
@@ -215,8 +222,8 @@ def salvar_simulacao_lote(
                 data_base_utilizada, taxa_mensal, total_notas, qtd_aprovadas,
                 qtd_recusadas, valor_bruto_total, valor_liquido_aprovado,
                 ganho_otimizador, status_operacao, origem_lote, qtd_documentos_pdf,
-                payload_resposta_json
-            ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SIMULADO', ?, ?, ?)
+                payload_resposta_json, usuario_id
+            ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SIMULADO', ?, ?, ?, ?)
             ON CONFLICT(batch_hash) DO UPDATE SET
                 criado_em = excluded.criado_em,
                 data_base_utilizada = excluded.data_base_utilizada,
@@ -229,7 +236,8 @@ def salvar_simulacao_lote(
                 ganho_otimizador = excluded.ganho_otimizador,
                 origem_lote = excluded.origem_lote,
                 qtd_documentos_pdf = excluded.qtd_documentos_pdf,
-                payload_resposta_json = excluded.payload_resposta_json
+                payload_resposta_json = excluded.payload_resposta_json,
+                usuario_id = excluded.usuario_id
             WHERE lotes_operacoes.status_operacao != 'LIQUIDADO'
         """, (
             batch_hash,
@@ -246,17 +254,37 @@ def salvar_simulacao_lote(
             float(meta.get("ganho_otimizador_reais", 0.0)),
             origem_lote.strip().upper(),
             int(qtd_documentos_pdf),
-            json.dumps(payload_validacao, ensure_ascii=False)
+            json.dumps(payload_validacao, ensure_ascii=False),
+            usuario_id,
         ))
 
     return {"batch_hash": batch_hash, "status_operacao": "SIMULADO"}
 
 
-def liquidar_lote_acid(batch_hash: str) -> dict[str, Any]:
+def obter_lote_operacao(batch_hash: str) -> dict[str, Any] | None:
+    """Status, dono e a resposta da validação guardada (o que a empresa viu antes de contratar)."""
+    with get_acid_connection(write_lock=False) as conn:
+        linha = conn.execute(
+            "SELECT status_operacao, usuario_id, payload_resposta_json FROM lotes_operacoes WHERE batch_hash = ?",
+            (batch_hash,),
+        ).fetchone()
+    if linha is None:
+        return None
+    return {
+        "status_operacao": linha["status_operacao"],
+        "usuario_id": linha["usuario_id"],
+        "payload": json.loads(linha["payload_resposta_json"]),
+    }
+
+
+def liquidar_lote_acid(
+    batch_hash: str, itens_aprovados: list[dict[str, Any]] | None = None, liquidado_por: int | None = None
+) -> dict[str, Any]:
     """Transação ACID de Liquidação Financeira (Compra efetiva dos recebíveis).
 
     Garante que nenhuma nota aprovada no lote tenha sido comprada em paralelo.
     Se houver colisão de hash_titulo, faz ROLLBACK completo e levanta ValueError.
+    itens_aprovados: as notas já revalidadas pela API (sem ele, as aprovadas da resposta guardada).
     """
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -276,8 +304,9 @@ def liquidar_lote_acid(batch_hash: str) -> dict[str, Any]:
                 "mensagem": "Este lote já foi liquidado anteriormente (Operação Idempotente)."
             }
 
-        payload = json.loads(lote["payload_resposta_json"])
-        itens_aprovados = [i for i in payload.get("itens", []) if i.get("status") == "APROVADA"]
+        if itens_aprovados is None:
+            payload = json.loads(lote["payload_resposta_json"])
+            itens_aprovados = [i for i in payload.get("itens", []) if i.get("status") == "APROVADA"]
 
         if not itens_aprovados:
             raise ValueError("O lote não possui notas aprovadas elegíveis para liquidação.")
@@ -327,9 +356,9 @@ def liquidar_lote_acid(batch_hash: str) -> dict[str, Any]:
 
         conn.execute("""
             UPDATE lotes_operacoes
-            SET status_operacao = 'LIQUIDADO', liquidado_em = ?
+            SET status_operacao = 'LIQUIDADO', liquidado_em = ?, liquidado_por = ?
             WHERE batch_hash = ?
-        """, (agora, batch_hash))
+        """, (agora, liquidado_por, batch_hash))
 
     return {
         "batch_hash": batch_hash,

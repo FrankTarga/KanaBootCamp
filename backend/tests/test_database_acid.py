@@ -517,42 +517,53 @@ def test_sincronizacao_write_through_stock_index():
 # 8. Testes de Integração das Rotas REST da RFC (/liquidate, /history, /audit)
 # ===========================================================================
 
-def test_rotas_api_liquidate_history_e_audit(db_temp: Path, monkeypatch: pytest.MonkeyPatch):
+def test_rotas_api_liquidate_history_e_audit(db_temp: Path, pasta_dados: Path, monkeypatch: pytest.MonkeyPatch):
     """
-    Testa as rotas especificadas no passo 6 da RFC:
-    - POST /api/v1/batches/{batch_hash}/liquidate (200 sucesso, 404 ausente, 409 conflito)
+    Testa as rotas especificadas no passo 6 da RFC, agora com login (gestor):
+    - POST /api/v1/batches/{batch_hash}/liquidate (401 sem token, 404 ausente, 200 sucesso)
     - GET /api/v1/batches/history
     - GET /api/v1/validators/audit
+    Os casos de dono do lote, 409 e revalidação estão em test_liquidacao.py.
     """
     from app.main import app
 
+    from .conftest import SACADO_LIVRE, linha_csv, montar_csv
+    from .test_historico import GESTOR, _ambiente, bearer
+
+    _ambiente(pasta_dados, monkeypatch)
     with TestClient(app) as client:
-        # 1. Tentar liquidar lote inexistente -> 404
-        r404 = client.post("/api/v1/batches/hash_fantasma/liquidate")
+        gestor = bearer(client, *GESTOR)
+        # 1. Sem login -> 401; lote inexistente -> 404
+        assert client.post("/api/v1/batches/hash_fantasma/liquidate").status_code == 401
+        r404 = client.post("/api/v1/batches/hash_fantasma/liquidate", headers=gestor)
         assert r404.status_code == 404
 
-        # 2. Simula e liquida com sucesso
-        import app.database as db_mod
-        payload = criar_payload_validacao("batch_api_test", qtd_aprovadas=2, qtd_recusadas=0)
-        db_mod.salvar_simulacao_lote(payload)
+        # 2. Valida pela API e liquida com sucesso
+        lote = montar_csv(
+            linha_csv(SACADO_LIVRE, "API-1", "1000,00", "21/11/2026"),
+            linha_csv(SACADO_LIVRE, "API-2", "2000,00", "21/11/2026"),
+        )
+        r_val = client.post("/api/v1/batches/validate", files={"file": ("l.csv", lote, "text/csv")}, headers=gestor)
+        batch_hash = r_val.json()["meta"]["batch_hash_idempotencia"]
 
-        r_liq = client.post("/api/v1/batches/batch_api_test/liquidate")
+        r_liq = client.post(f"/api/v1/batches/{batch_hash}/liquidate", headers=gestor)
         assert r_liq.status_code == 200
         dados_liq = r_liq.json()
         assert dados_liq["status"] == "LIQUIDADO"
         assert dados_liq["qtd_titulos_comprados"] == 2
 
         # 3. Histórico de lotes
-        r_hist = client.get("/api/v1/batches/history")
+        r_hist = client.get("/api/v1/batches/history", headers=gestor)
         assert r_hist.status_code == 200
         assert "historico" in r_hist.json()
-        assert any(item["batch_hash"] == "batch_api_test" for item in r_hist.json()["historico"])
+        assert any(item["batch_hash"] == batch_hash for item in r_hist.json()["historico"])
 
         # 4. Trilha de auditoria de regras
+        import app.database as db_mod
         db_mod.registrar_auditoria_validadores(
             "admin@antecipe.com.br", "TESTE_API", 7, {}, {}
         )
-        r_audit = client.get("/api/v1/validators/audit")
+        r_audit = client.get("/api/v1/validators/audit", headers=gestor)
         assert r_audit.status_code == 200
         assert "auditoria" in r_audit.json()
         assert any(item["acao"] == "TESTE_API" for item in r_audit.json()["auditoria"])
