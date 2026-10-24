@@ -48,6 +48,7 @@ print(f"{n(r['qtd_recusadas'])} notas recusadas, {formatar_brl(r['valor_recusado
 print(f"{n(r['qtd_com_mais_de_um_erro'])} delas ({pct(r['pct_com_mais_de_um_erro'])}) têm mais de um erro\n")
 print(f"{'motivo':48s} {'notas':>7s} {'% recus.':>8s} {'R$ impactado':>20s} {'só este':>8s} {'R$ líquido liberado':>20s}")
 for m in r["motivos"]:
-    liberado = formatar_brl(m["liquido_liberado"]) if m["corrigivel"] else "não corrigível"
+    liberado = ("não corrigível" if not m["corrigivel"]
+                else "sem estimativa" if m["liquido_liberado"] is None else formatar_brl(m["liquido_liberado"]))
     print(f"{m['titulo_amigavel']:48s} {n(m['qtd_notas']):>7s} {pct(m['pct_das_recusadas']):>8s} "
           f"{formatar_brl(m['valor_impactado']):>20s} {n(m['qtd_so_este_erro']):>8s} {liberado:>20s}")

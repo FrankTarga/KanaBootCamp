@@ -80,3 +80,11 @@ def test_percentuais_fecham_em_100_com_arredondamento():
     from app.analise_recusas import percentuais
     assert percentuais([1, 1, 1], 3) == [33.4, 33.3, 33.3]
     assert round(sum(percentuais([7, 5, 3, 2, 1, 1, 1], 20)), 1) == 100.0
+
+
+def test_nota_vencida_nao_tem_estimativa_de_quanto_libera():
+    r = analisar_recusas([nota("RECUSADA", 3120.0, 3120.0, "NAO_VENCIDA"), nota("RECUSADA", 100.0, 98.0, "TIPO_RECEBIVEL")])
+    vencida = next(m for m in r["motivos"] if m["codigo"] == "NAO_VENCIDA")
+    assert (vencida["corrigivel"], vencida["liquido_liberado"]) == (True, None)
+    assert next(g for g in r["grupos"]["um_problema"] if g["codigo"] == "NAO_VENCIDA")["liquido_liberado"] is None
+    assert r["motivos"][0]["codigo"] == "TIPO_RECEBIVEL"

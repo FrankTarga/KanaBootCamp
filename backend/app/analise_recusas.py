@@ -20,6 +20,9 @@ from typing import Any
 
 # Fraude e duplicidade não se "corrigem": a nota não pode ser vendida de novo.
 NAO_CORRIGIVEIS = frozenset({"DUPLICIDADE_LOTE", "DUPLICIDADE_FUNDO", "FRAUDE_OUTRO_FUNDO"})
+# Corrigir uma nota vencida é emitir outra com novo vencimento: o preço dela não existe ainda,
+# então "quanto libera" fica None (sem estimativa) em vez do valor cheio, que exageraria o ganho.
+SEM_ESTIMATIVA = frozenset({"NAO_VENCIDA"})
 
 
 def percentuais(qtds: list[int], total: int) -> list[float]:
@@ -58,14 +61,14 @@ def analisar_recusas(itens: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
                 "qtd_notas": 0,
                 "valor_impactado": 0.0,
                 "qtd_so_este_erro": 0,
-                "liquido_liberado": 0.0,
+                "liquido_liberado": None if codigo in SEM_ESTIMATIVA else 0.0,
             })
             m["qtd_notas"] += 1
             m["valor_impactado"] += nota["valor_nominal"]
         if len(codigos) == 1:
             m = motivos[codigos[0]]
             m["qtd_so_este_erro"] += 1
-            if m["corrigivel"]:
+            if m["corrigivel"] and m["liquido_liberado"] is not None:
                 m["liquido_liberado"] += nota["valor_liquido"]
             sozinho[codigos[0]].append(nota)
         else:
@@ -75,7 +78,8 @@ def analisar_recusas(itens: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     for m in motivos.values():
         m["pct_das_recusadas"] = round(m["qtd_notas"] / total * 100, 1)
         m["valor_impactado"] = round(m["valor_impactado"], 2)
-        m["liquido_liberado"] = round(m["liquido_liberado"], 2)
+        if m["liquido_liberado"] is not None:
+            m["liquido_liberado"] = round(m["liquido_liberado"], 2)
 
     # Partição: um grupo por problema único + o grupo "mais de um problema" (soma = 100%).
     um = sorted(sozinho.items(), key=lambda kv: -len(kv[1]))
@@ -119,5 +123,5 @@ def analisar_recusas(itens: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
             "mais_de_um_problema": {**_bloco(multiplas), "pct_das_recusadas": pct_topo[-1], "subgrupos": subgrupos},
         },
         # o que mais destrava dinheiro primeiro; empate pelo valor impactado
-        "motivos": sorted(motivos.values(), key=lambda m: (-m["liquido_liberado"], -m["valor_impactado"])),
+        "motivos": sorted(motivos.values(), key=lambda m: (-(m["liquido_liberado"] or 0), -m["valor_impactado"])),
     }
