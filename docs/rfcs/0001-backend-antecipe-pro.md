@@ -211,6 +211,7 @@ O estoque continua em RAM para leitura O(1). O `sqlite3` da biblioteca padrão g
 | tabela | o que entra | quando |
 |---|---|---|
 | `lotes` | chave de idempotência completa (sha256 de arquivo, parâmetros e versão das regras), `batch_hash` do arquivo, modo, data-base, taxa, what-if, se veio do cache e os totais (notas, aprovadas, recusadas, fraude, bruto, líquido, tempo) | todo `POST /batches/validate` bem-sucedido, inclusive as repetições servidas pelo cache |
+| `notas_lote` + `erros_nota` | cada nota (número, cliente, valor, prazo, deságio, líquido, status) e cada motivo de recusa com a mensagem que a empresa recebeu | junto com o resumo, **na mesma transação**, só no modo lote; uma repetição do cache aponta para as notas do envio original |
 | `mudancas_regras` | versão, regras ativas e o JSON completo aplicado | todo `PUT /validators` aceito (um 401 ou 422 não grava) |
 
 Decisões:
@@ -218,7 +219,9 @@ Decisões:
 - **Não substitui o cache de idempotência**, que continua em memória. Uma idempotência só pelo hash do arquivo devolveria um resultado antigo depois de uma mudança de regra.
 - Uma conexão por operação, segura com as threads do FastAPI.
 - Se o SQLite falhar, a validação segue e o erro vai para o log.
-- Leitura paginada em `GET /historico/lotes` e `GET /historico/regras` (`limite` de 1 a 200, `offset`).
+- Leitura paginada em `GET /historico/lotes`, `GET /historico/lotes/{id}` (notas), `GET /historico/notas?nu_documento=` (busca com a mesma normalização da chave canônica, por índice) e `GET /historico/regras`.
+- **Carteira só guarda o resumo:** o arquivo é o próprio estoque (100k notas, que já estão em disco), e guardar as notas dele daria ~70 MB por envio.
+- **Medido** (pior caso, notas todas recusadas, com mensagens): 714 bytes por nota; um lote de 10.000 notas grava em 113 ms (+6,8 MB); uma página de 500 notas lê em 6 ms; a busca por número leva 0,8 ms. Para referência, 5.000 notas por dia dão ~3,5 MB/dia (~1,3 GB/ano); acima disso, ou com várias réplicas da API, o caminho é PostgreSQL.
 
 Verificado: o histórico sobrevive à recriação do container.
 
