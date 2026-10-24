@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from .analise_recusas import analisar_recusas
 from .api_schemas import (
@@ -39,6 +39,7 @@ from .api_schemas import (
     MetaLote,
     PrecificacaoConfig,
     ResumoLote,
+    Severidade,
     ValidadoresConfig,
 )
 from .br_utils import (
@@ -70,10 +71,10 @@ from .stock_index import (
 
 logger = logging.getLogger("antecipe.rule_engine")
 
-SEV_OK = "OK"
-SEV_REGRA = "REGRA_NEGOCIO"
-SEV_DUPLICIDADE = "DUPLICIDADE"
-SEV_FRAUDE = "FRAUDE"
+SEV_OK: Severidade = "OK"
+SEV_REGRA: Severidade = "REGRA_NEGOCIO"
+SEV_DUPLICIDADE: Severidade = "DUPLICIDADE"
+SEV_FRAUDE: Severidade = "FRAUDE"
 _RANK_SEVERIDADE = {SEV_OK: 0, SEV_REGRA: 1, SEV_DUPLICIDADE: 2, SEV_FRAUDE: 3}
 
 TAXA_MENSAL_PADRAO = 0.025
@@ -1272,10 +1273,10 @@ class RuleEngine:
         precificacao = cfg.precificacao or PrecificacaoConfig()
 
         if modo == "carteira":
-            _, linhas, datas, erros = self._avaliar_carteira(conteudo, cfg, taxa)
-            aprovadas = {pos for pos, e in enumerate(erros) if not e}
+            _, linhas, datas, erros_carteira = self._avaliar_carteira(conteudo, cfg, taxa)
+            aprovadas = {pos for pos, e in enumerate(erros_carteira) if not e}
             resultado = ResultadoSimulacao(
-                list(range(len(linhas))), erros, aprovadas, round(sum(linhas[p].valor_liquido for p in aprovadas), 2)
+                list(range(len(linhas))), erros_carteira, aprovadas, round(sum(linhas[p].valor_liquido for p in aprovadas), 2)
             )
             return self._montar_resposta(
                 conteudo, linhas, resultado, resultado, data_base, taxa, False, inicio, datas_aquisicao=datas
@@ -1365,7 +1366,9 @@ class RuleEngine:
             erros = sorted(melhor.erros[pos], key=lambda e: (-_RANK_SEVERIDADE[e.severidade], e.ordem))
             aprovada = pos in melhor.aprovadas
             salva = otimizar_lote and aprovada and pos not in original.aprovadas
-            severidade = max((e.severidade for e in erros), key=lambda s: _RANK_SEVERIDADE[s], default=SEV_OK)
+            severidade: Severidade = cast(
+                Severidade, max((e.severidade for e in erros), key=lambda s: _RANK_SEVERIDADE[s], default=SEV_OK)
+            )
             bruto_total += linha.valor_nominal
             if aprovada:
                 bruto_aprovado += linha.valor_nominal
