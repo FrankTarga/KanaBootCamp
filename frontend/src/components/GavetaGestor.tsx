@@ -48,9 +48,11 @@ export function GavetaGestor({
   const [config, setConfig] = useState<ValidadoresConfig | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [sucesso, setSucesso] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
     if (aberto) {
+      setErro(null);
       obterValidadores().then((res) => {
         setConfig(JSON.parse(JSON.stringify(res.dados)));
       });
@@ -111,10 +113,13 @@ export function GavetaGestor({
   const handleSalvarEPermutar = async () => {
     if (!config) return;
     setSalvando(true);
+    setErro(null);
     try {
       await onAplicarRegras(config);
       setSucesso(true);
       setTimeout(() => setSucesso(false), 3000);
+    } catch (err: unknown) {
+      setErro(err instanceof Error ? err.message : "Erro ao salvar regras.");
     } finally {
       setSalvando(false);
     }
@@ -370,6 +375,18 @@ export function GavetaGestor({
 
           {/* Rodapé com Botões de Ação */}
           <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-2">
+            {erro && (
+              <div className="p-3 bg-rose-50 text-rose-700 text-xs border border-rose-200 rounded-lg flex items-center justify-between">
+                <span>{erro}</span>
+                <button
+                  type="button"
+                  onClick={() => setErro(null)}
+                  className="text-rose-900 font-bold ml-2 hover:opacity-75"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <button
                 type="button"

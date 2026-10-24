@@ -184,21 +184,38 @@ export async function obterValidadores(): Promise<{ dados: ValidadoresConfig; fo
   }
 }
 
-export async function salvarValidadores(config: ValidadoresConfig): Promise<{ dados: ValidadoresConfig; fonte: FonteDados }> {
-  validadoresEmMemoria = JSON.parse(JSON.stringify(config));
+export async function salvarValidadores(
+  config: ValidadoresConfig,
+  apiKey?: string,
+): Promise<{ dados: ValidadoresConfig; fonte: FonteDados }> {
   if (FORCAR_MOCK) {
+    validadoresEmMemoria = JSON.parse(JSON.stringify(config));
     return { dados: validadoresEmMemoria, fonte: "demo" };
   }
+
+  const chave = apiKey || (import.meta.env.VITE_ADMIN_API_KEY as string | undefined);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (chave) {
+    headers["X-API-Key"] = chave;
+  }
+
   try {
     const res = await requisitar<ValidadoresConfig>("/validators", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(config),
     });
+    validadoresEmMemoria = JSON.parse(JSON.stringify(res.dados));
     return { dados: res.dados, fonte: "api" };
   } catch (e) {
-    console.warn("API de validadores offline ao salvar, atualizando apenas em memória:", e);
-    return { dados: validadoresEmMemoria, fonte: "demo" };
+    if (e instanceof ApiError && e.status === 0) {
+      console.warn("API de validadores offline ao salvar, atualizando apenas em memória:", e);
+      validadoresEmMemoria = JSON.parse(JSON.stringify(config));
+      return { dados: validadoresEmMemoria, fonte: "demo" };
+    }
+    throw e;
   }
 }
 
