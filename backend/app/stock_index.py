@@ -139,6 +139,26 @@ class StockIndex:
             return self.exposicao_sacado_raiz if agrupamento == AGRUPAMENTO_RAIZ else self.exposicao_sacado
         return self.exposicao_cedente_raiz if agrupamento == AGRUPAMENTO_RAIZ else self.exposicao_cedente
 
+    def registrar_novo_titulo_antecipe(
+        self,
+        hash_titulo: str,
+        doc_sacado: str,
+        doc_cedente: str,
+        valor_nominal: float,
+        data_aquisicao: str = "22/10/2026",
+    ) -> None:
+        """Write-Through: Registra um título liquidado diretamente na memória O(1)."""
+        self.hashes_antecipe[hash_titulo] = data_aquisicao
+        self.patrimonio_antecipe = round(self.patrimonio_antecipe + valor_nominal, 2)
+        sac = normalizar_documento(doc_sacado)
+        ced = normalizar_documento(doc_cedente)
+        self.exposicao_sacado[sac] = round(self.exposicao_sacado.get(sac, 0.0) + valor_nominal, 2)
+        self.exposicao_cedente[ced] = round(self.exposicao_cedente.get(ced, 0.0) + valor_nominal, 2)
+        raiz_sac = sac[:8] if len(sac) == 14 else sac
+        raiz_ced = ced[:8] if len(ced) == 14 else ced
+        self.exposicao_sacado_raiz[raiz_sac] = round(self.exposicao_sacado_raiz.get(raiz_sac, 0.0) + valor_nominal, 2)
+        self.exposicao_cedente_raiz[raiz_ced] = round(self.exposicao_cedente_raiz.get(raiz_ced, 0.0) + valor_nominal, 2)
+
 
 def carregar_estoque(
     caminho: Path,

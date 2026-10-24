@@ -17,12 +17,24 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, File, Form, Header, Query, Request, Response, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from .database import (
+    autenticar_usuario,
+    carregar_titulos_liquidados_db,
+    init_db,
+    liquidar_lote_acid,
+    listar_auditoria_validadores,
+    listar_historico_operacoes,
+    registrar_auditoria_validadores,
+    salvar_simulacao_lote,
+    salvar_usuario as salvar_usuario_acid,
+)
 
 from .api_schemas import (
     BatchValidationResponse,
@@ -161,12 +173,29 @@ async def lifespan(app: FastAPI):
     )
     app.state.cache = CacheIdempotencia(settings.cache_idempotencia)
     app.state.historico = Historico(settings.historico_path)
+
+    init_db()
+    try:
+        for titulo_db in carregar_titulos_liquidados_db():
+            index.registrar_novo_titulo_antecipe(
+                hash_titulo=titulo_db["hash_titulo"],
+                doc_sacado=titulo_db["doc_sacado"],
+                doc_cedente=titulo_db["doc_cedente"],
+                valor_nominal=float(titulo_db["valor_nominal"]),
+                data_aquisicao=titulo_db.get("data_aquisicao", "22/10/2026"),
+            )
+    except Exception:
+        logger.exception("falha ao sincronizar titulos liquidados no startup")
     for variavel, email, senha, nome, cargo, role in (
         ("BANCA_SENHA", settings.banca_email, settings.banca_senha, "Banca avaliadora", "Gestor do fundo", "GESTOR"),
         ("CEDENTE_SENHA", settings.cedente_email, settings.cedente_senha, "Metalúrgica Silva LTDA", "Empresa cedente", "CEDENTE"),
     ):
         if senha:
             app.state.historico.salvar_usuario(email, senha, nome, cargo, role)
+            try:
+                salvar_usuario_acid(email, senha, nome, cargo, role)
+            except Exception:
+                logger.exception("falha ao salvar usuario no banco ACID: %s", email)
         else:
             logger.warning("%s não definida: usuário %s não foi criado", variavel, role)
     if not settings.admin_api_key:
@@ -394,7 +423,20 @@ def atualizar_validadores(
         raise ErroEntrada("NAO_AUTORIZADO", "API key ausente ou inválida (header X-API-Key).", 401)
     try:
         engine = _engine(request)
+        config_anterior = engine.config.para_json() if hasattr(engine.config, "para_json") else {}
         aplicada = engine.atualizar_config(config)
+        try:
+            user = _usuario(request, authorization)
+            email_usuario = user.get("email", "gestor@antecipe.com.br") if user else "admin@antecipe.com.br"
+            registrar_auditoria_validadores(
+                usuario_email=email_usuario,
+                acao="ATUALIZAR_VALIDADORES",
+                regras_ativas_count=engine.regras_ativas_count(),
+                json_anterior=config_anterior,
+                json_novo=aplicada.para_json(),
+            )
+        except Exception:
+            logger.exception("falha ao registrar auditoria de regras no banco ACID")
         _registrar_historico(
             request,
             "registrar_mudanca_regras",
@@ -413,7 +455,9 @@ def atualizar_validadores(
 
 @router.post("/auth/login", response_model=UsuarioLogado)
 def login(dados: LoginRequest, request: Request) -> UsuarioLogado:
-    usuario = request.app.state.historico.autenticar(dados.email, dados.senha)
+    usuario = autenticar_usuario(dados.email, dados.senha)
+    if usuario is None:
+        usuario = request.app.state.historico.autenticar(dados.email, dados.senha)
     if usuario is None:
         raise ErroEntrada("CREDENCIAIS_INVALIDAS", "E-mail ou senha incorretos.", 401)
     settings: Settings = request.app.state.settings
@@ -517,7 +561,45 @@ def validar_lote(
         resultado.meta.ganho_otimizador_reais,
         resultado.meta.tempo_processamento_ms,
     )
+    try:
+        salvar_simulacao_lote(resultado.model_dump(mode="json"))
+    except Exception:
+        logger.exception("falha ao salvar simulacao no banco ACID")
     return Response(corpo, media_type="application/json", headers={"X-Idempotent-Replay": "false"})
+
+
+@router.post("/batches/{batch_hash}/liquidate")
+def efetivar_compra_lote(batch_hash: str, request: Request) -> dict[str, Any]:
+    """Efetiva a compra do lote (Transação ACID) e atualiza o estoque do fundo."""
+    try:
+        resultado = liquidar_lote_acid(batch_hash)
+        engine = _engine(request)
+        # Write-Through: Atualiza a memória RAM O(1) imediatamente após o COMMIT no banco
+        for item in resultado.get("titulos_comprados", []):
+            engine.index.registrar_novo_titulo_antecipe(
+                hash_titulo=item["hash_titulo"],
+                doc_sacado=item["doc_sacado"],
+                doc_cedente=item["doc_cedente"],
+                valor_nominal=float(item["valor_nominal"]),
+                data_aquisicao=item.get("data_aquisicao", "22/10/2026"),
+            )
+        return resultado
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.get("/batches/history")
+def obter_historico_lotes() -> dict[str, Any]:
+    """Retorna os lotes simulados e liquidados persistidos no banco ACID."""
+    return {"historico": listar_historico_operacoes()}
+
+
+@router.get("/validators/audit")
+def obter_auditoria_regras() -> dict[str, Any]:
+    """Retorna a trilha de auditoria das mudanças no motor Zero-Deploy."""
+    return {"auditoria": listar_auditoria_validadores()}
 
 
 @router.post("/portfolio/validate", response_model=list[dict[str, Any]])
