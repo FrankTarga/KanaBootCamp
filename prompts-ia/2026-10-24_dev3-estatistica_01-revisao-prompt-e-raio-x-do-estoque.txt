@@ -1,0 +1,32 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Revisão do prompt do estatístico e raio-x do estoque
+Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
+Área: Matemática / Estatística
+
+================================================================================
+PROMPT
+================================================================================
+Revise a ideia do projeto e o meu prompt (Parte 3 - Estatístico/Quant), aponte erros futuros
+e já comece a minha parte para os devs 1 e 2.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+1. ERROS ENCONTRADOS NO PROMPT ANTES DE CODAR
+- A amostra colada do estoque tinha só 5 das 11 colunas e vinha separada por TAB (o contrato exige ";").
+- Acentos quebrados ("INDÃšSTRIA"): UTF-8 aberto como ANSI pelo Excel.
+- O exemplo do /health citava 6 regras ativas; o JSON tem 7. O código deve contar, nunca fixar.
+- Taxa em dois lugares: API com padrão 2,5% a.m. e JSON do fundo com 2,0% a.m.
+- "agrupamento: RAIZ_CNPJ": a concentração deve somar pelos 8 primeiros dígitos do CNPJ, para filiais
+  do mesmo grupo não driblarem o teto.
+
+2. O QUE JÁ EXISTIA E FOI MANTIDO
+- O otimizador do Dev 1 (mochila 0/1 com programação dinâmica e várias ordens) já era melhor que o
+  especificado: mantido, não sobrescrito.
+- Os CSVs de samples/ já estavam ensaiados no roteiro de demo: não foram regerados.
+
+3. RAIO-X DO ESTOQUE (scripts/raio_x_e_gerador_samples.py, usa as funções do próprio backend)
+- 100.554 linhas, 18 fundos, 0 inválidas. ANTECIPE FIDC: 10.621 notas, patrimônio R$ 53.074.028,00.
+- Maior DATA_AQUISICAO 21/10/2026 -> data-base 22/10/2026 (próximo dia útil).
+- Achado para a banca: SERRALHERIA VIOLETA S.A. com R$ 6,63 mi (12,5% da carteira), acima do teto
+  de 10% (R$ 5,31 mi).

@@ -1,0 +1,22 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Vale a pena o prompt de concorrência (WAL, IDs, threads)?
+Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
+Área: Front-end / Design (revisão técnica)
+
+================================================================================
+PROMPT
+================================================================================
+Quero saber se vale a pena fazer isso (prompt para ligar WAL no SQLite, IDs atômicos e mover a
+validação pesada para threads) ou se já está funcionando.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+Conclusão: não vale no prazo do hackathon.
+- Validação fora do event loop: já funciona. As rotas são síncronas e o FastAPI as roda em threads.
+  Medido: carteira de 100 mil notas em 9,3 s e, durante ela, /health em 0,05 s (mediana), máx. 0,3 s.
+- Troca de regras no meio de um lote: já segura (cada lote captura a configuração no início; o PUT troca
+  com trava).
+- IDs: tabelas já usam AUTOINCREMENT; sobra um MAX(id) que roda com a trava de escrita já tomada.
+- WAL: não ligado. Ganho pequeno e o banco fica em pasta do Windows montada no Docker, onde o WAL não é
+  confiável (o próprio prompt manda parar nesse caso).

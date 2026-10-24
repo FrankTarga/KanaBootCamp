@@ -1,0 +1,25 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Integração do login, transição da página inicial e menu fixo
+Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
+Área: Front-end / Design
+
+================================================================================
+PROMPT
+================================================================================
+Criamos uma tela de login; teste tudo e, se estiver coerente, dê push. Depois: o menu lateral
+sai da tela quando eu rolo, tem que ficar estático; a barra laranja do custo está estranha no meio;
+a divisória entre a página inicial e o painel está brusca, faça uma transição.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+- Fluxo: página inicial -> login -> painel. Escolher uma opção do menu de cima sem estar logado leva
+  ao login. O login do time (senha conferida no servidor, sessão por token) foi mantido.
+- Painel com a altura da tela: o menu não se mexe, só o conteúdo rola. A roda do mouse dentro do painel
+  nunca move a página; o menu ficou compacto para caber sem rolagem própria.
+- Liquidez: todas as barras partem da esquerda (o custo não fica mais solto no meio).
+- Transição guiada pela rolagem: a página inicial esmaece e sobe, o painel entra e o menu desliza, sem
+  linha de corte (fim da página inicial se dissolve na cor do painel).
+- Modo de design (VITE_USE_MOCK=true no npm run dev) entra sem servidor só para ver a interface; o build
+  de produção continua exigindo senha.
+- Testado: login certo e errado, perfis gestor e empresa, envio de lote, todas as telas, F5, sair.

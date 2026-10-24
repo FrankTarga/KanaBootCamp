@@ -1,0 +1,20 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Tela Análise de perda com valor digitado
+Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
+Área: Front-end / Design
+
+================================================================================
+PROMPT
+================================================================================
+Em vez de fazer o mapa com notas de R$ 100, deixe o valor em aberto para a pessoa digitar e já
+ver o quanto vai perder.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+- Campo "Valor da nota" (com separador de milhar) e controle de prazo de 0 a 180 dias.
+- Gráfico em reais para o valor digitado: reta do que se recebe em cada prazo, área rosa do que se
+  perde, marcador no prazo escolhido (dá para clicar ou arrastar no gráfico) e as notas do lote.
+- Quadros "Recebe hoje" e "Perde (x%)" atualizam enquanto digita.
+- "Mesmo valor, prazos diferentes" passou a usar o valor digitado; o simulador separado saiu.
+- Testado em computador, tablet e celular sem rolagem lateral.

@@ -1,0 +1,22 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Nomes em português comum, página inicial e responsividade
+Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
+Área: Front-end / Design
+
+================================================================================
+PROMPT
+================================================================================
+Tire os "_" que aparecem nos nomes, deixe tudo escrito de forma comum. Antes do Enviar notas,
+crie uma página inicial que explica o site, com menu horizontal; ao escolher uma opção ou rolar, a tela
+desce para o painel. Foque na responsividade: ao rolar um painel, ele tem que ficar na sua área.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+- Regras com nome e explicação (ex.: CNPJ_SACADO_VALIDO -> "CNPJ do cliente válido"); listas viraram
+  botões de marcar; "What-If", "Zero-Deploy" e "Contingência" saíram dos textos.
+- Página inicial com menu horizontal, explicação, exemplo de nota aprovada e recusada e os 3 passos.
+- Tabela de notas: a explicação abria no fim da tabela; agora abre logo abaixo da nota clicada. Área
+  com rolagem própria e cabeçalho fixo; no celular vira um cartão por nota.
+- Gaveta de regras e menu do celular travam a página de trás; Esc fecha.
+- Conferido sem rolagem lateral em todas as telas, em 3 tamanhos.

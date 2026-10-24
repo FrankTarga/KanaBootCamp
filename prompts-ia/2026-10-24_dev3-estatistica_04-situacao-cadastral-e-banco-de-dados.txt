@@ -1,0 +1,28 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Arquivo de situação cadastral da organização e decisão sobre banco de dados
+Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
+Área: Matemática / Estatística
+
+================================================================================
+PROMPT
+================================================================================
+Enviaram o arquivo cnpj_situacao_mock.csv. Muda alguma coisa? Ajuda?
+E sobre banco de dados: vale usar Cloudflare para salvar e classificar as notas?
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+1. cnpj_situacao_mock.csv CONTRADIZ O GABARITO
+- 3.041 CNPJs (2.999 ATIVA, 22 INAPTA, 12 SUSPENSA, 8 BAIXADA).
+- Dos 87 sacados que o gabarito barra, 55 estão ATIVA no arquivo e 32 nem aparecem; os 39 irregulares
+  do arquivo têm 694 notas APROVADAS no gabarito.
+- Linhas que batem: como estava 97,7%; arquivo novo com ausente = ATIVA 96,9%; com ausente = recusado
+  76,4% (recusas passariam de ~15 mil para ~31 mil).
+- Recomendação: não trocar e perguntar aos organizadores. O backend ganhou a opção SITUACAO_FONTE
+  (gabarito, kanastra ou formato), com gabarito como padrão.
+
+2. BANCO DE DADOS
+- Cloudflare D1 desaconselhado no prazo (conta, token e rede ao vivo). Se precisar de histórico:
+  SQLite da biblioteca padrão, num arquivo em backend/data, com notas e erros_da_nota.
+- O painel de um lote não depende de banco: sai da resposta da API. O time implementou depois o
+  histórico em SQLite (lotes, notas, motivos, regras, usuários).
