@@ -1,0 +1,460 @@
+﻿PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de prompts (Dev 2 - Front-end) e respostas do assistente de IA
+Exportado em: 24/10/2026
+
+================================================================================
+PROMPT 1
+================================================================================
+## PARTE 0: Prompt Base Unificado 
+
+markdown
+# CONTEXTO GLOBAL E ESPECIFICAÇÃO DE ARQUITETURA: PROJETO "ANTECIPE PRO"
+
+Você atuará como Engenheiro de Software Sênior e Arquiteto de Sistemas Financeiros (FIDC) ajudando nosso time de 3 pessoas (Dev Back-end, Dev Front-end e Estatístico/Quant) a vencer o Hackathon Antecipe (prazo final: hoje às 18h). 
+Sua missão é gerar código de nível de produção, modular, sem placeholders (// TODO), rigorosamente fiel aos contratos de dados definidos abaixo para que o código dos 3 integrantes se conecte de primeira sem conflitos de merge.
+
+---
+
+## 1. ENTENDIMENTO DO PROBLEMA DE NEGÓCIO
+Uma pequena ou média empresa (*Cedente) realizou vendas a prazo e possui recebíveis (Duplicatas, Cheques, CCBs, Notas Comerciais). Ela precisa de caixa hoje e deseja antecipar (ceder/vender) esses títulos para o fundo **ANTECIPE FIDC*.
+Porém, o fundo possui políticas rígidas de risco e elegibilidade configuradas no arquivo validadores_antecipe.json e já possui uma carteira histórica carregada no arquivo estoque_antecipe.csv (~100.000 linhas distribuídas entre 18 fundos diferentes, incluindo o próprio ANTECIPE FIDC).
+
+O sistema deve receber o upload de um lote CSV de notas, validar cada título contra o motor de regras dinâmico e contra o estoque histórico de 100k linhas, calcular o preço de compra (Valor Nominal menos o Deságio/Taxa de Desconto) e apresentar:
+1. Para a *Empresa (Cedente)*: Quanto ela vai receber hoje (Valor Líquido), quais notas foram aprovadas e, para as recusadas, uma explicação humana, transparente e acionável (sem jargão técnico), além de otimizar a ordem do lote para colocar o máximo de dinheiro no bolso dela.
+2. Para o *Gestor do Fundo*: Um painel em tempo real ("Zero-Deploy Engine") onde ele altera parâmetros ou ativa/desativa validadores do validadores_antecipe.json pela tela ou API e revalida o lote instantaneamente sem reiniciar ou fazer deploy da aplicação.
+
+---
+
+## 2. ESPECIFICAÇÃO DOS ARQUIVOS DE DADOS
+
+### 2.1. Formato do CSV (Tanto o estoque_antecipe.csv de 100k linhas quanto o CSV de Upload)
+- *Encoding:* UTF-8 (tratar eventual BOM utf-8-sig).
+- *Separador de colunas:* Ponto e vírgula (;).
+- *Separador decimal:* Vírgula (,). Atenção: fazer parse resiliente de strings como "1500,50" ou "1.500,50" para float.
+- *Formato de data:* dd/mm/aaaa (ex: "22/10/2026").
+- *Data-base dos dados ("@quinta-feira"):* A data-base de referência das operações é a quinta-feira do dataset (ex: maior DATA_AQUISICAO do estoque ou 22/10/2026). *REGRA CRÍTICA:* Nunca utilizar datetime.today() fixo no código, pois hoje é sábado e isso adicionaria 2 dias de erro em todos os cálculos de vencimento e deságio. A data_base deve ser detectada automaticamente do estoque e poder ser sobrescrita via parâmetro na API/UI.
+- *Colunas exatas do cabeçalho (Linha 1):*
+  1. NOME_FUNDO: Nome do fundo comprador (ex: "ANTECIPE FIDC").
+  2. DOC_FUNDO: CNPJ do fundo.
+  3. NOME_CEDENTE: Razão social da empresa que está vendendo a nota.
+  4. DOC_CEDENTE: CNPJ da empresa cedente.
+  5. NOME_SACADO: Nome/Razão social do cliente devedor que pagará a nota no vencimento.
+  6. DOC_SACADO: CNPJ ou CPF do cliente sacado.
+  7. NU_DOCUMENTO: Identificador da nota no sistema do cedente (texto livre definido por cada empresa).
+  8. TIPO_RECEBIVEL: Modalidade do título ("Duplicata", "Duplicata de Serviço", "Cheque", "CCB", "Nota Comercial").
+  9. VALOR_NOMINAL: Valor de face original do título em reais (R$).
+  10. DATA_VENCIMENTO_ORIGINAL: Data em que o sacado pagará o título (dd/mm/aaaa).
+  11. DATA_AQUISICAO: Data da operação de compra pelo fundo (dd/mm/aaaa).
+
+### 2.2. Formato do validadores_antecipe.json
+- Estrutura JSON contendo a lista/mapa de regras do ANTECIPE FIDC.
+- Cada validador possui:
+  - codigo: Identificador único da regra.
+  - ativo: Booleano (true ou false). Regra desativada (false) deve ser ignorada pelo motor.
+  - parametros: Dicionário com os limites numéricos ou listas daquela regra. *PROIBIDO fazer hardcode de qualquer limite no código-fonte.*
+
+---
+
+## 3. OS 6 GRANDES DIFERENCIAIS TÉCNICOS E DE PRODUTO (OVERDELIVERY)
+
+Nossa solução não será apenas um leitor de CSV passivo. Implementaremos 6 diferenciais competitivos:
+
+### Diferencial 1: Indexação In-Memory O(1) no Startup (Performance Extrema)
+Fazer queries SQL linha a linha contra 100.000 registros durante o upload de um lote deixaria a validação lenta. No startup do servidor, o estoque_antecipe.csv inteiro é lido uma única vez e indexado em memória RAM usando HashMaps e HashSets:
+- hashes_antecipe_fidc: set[str] -> Busca O(1) de títulos já comprados pelo ANTECIPE FIDC.
+- hashes_outros_fundos: dict[str, str] -> Busca O(1) mapeando o hash do título para o nome de qualquer um dos outros 17 fundos do mercado que já tenham comprado aquela nota.
+- exposicao_por_sacado: dict[str, float] -> Soma pré-calculada de VALOR_NOMINAL de cada DOC_SACADO dentro da carteira do ANTECIPE FIDC.
+- exposicao_por_cedente: dict[str, float] -> Soma pré-calculada de VALOR_NOMINAL de cada DOC_CEDENTE dentro da carteira do ANTECIPE FIDC.
+- patrimonio_carteira_antecipe: float -> Soma total de VALOR_NOMINAL do ANTECIPE FIDC.
+
+### Diferencial 2: Validação Stateful Intra-Lote (Shadow Ledger em Memória)
+Um erro clássico em hackathons é validar cada linha do CSV olhando apenas para a foto estática do estoque inicial.
+- *Nossa solução:* Ao iniciar a validação de um CSV, criamos um ShadowLedger (cópia leve em memória dos dicionários de exposição de sacado, cedente e carteira total).
+- A cada linha do CSV que passa por *todos* os validadores ativos e recebe status APROVADA, o seu VALOR_NOMINAL é *imediatamente somado* ao ShadowLedger antes de avaliar a próxima linha do CSV!
+- Assim, se um sacado tem R$ 10.000 de limite restante e o lote traz três notas de R$ 5.000 para ele, as duas primeiras são aprovadas e a terceira é recusada com precisão cirúrgica.
+
+### Diferencial 3: Smart Batch Optimizer (Alocação Inteligente de Limite com Simulação Dupla)
+Quando o limite de concentração de um Sacado ou Cedente estoura no meio do lote, a ordem em que as linhas aparecem no CSV muda o valor líquido que a empresa recebe.
+- *Nossa solução:* Quando a flag otimizar_lote=true está ativa, o motor executa o lote em *duas passagens em memória* (leva menos de 15ms):
+  1. *Passagem 1 (Ordem Original do CSV):* Calcula quanto a empresa receberia na ordem bruta enviada.
+  2. *Passagem 2 (Ordem Otimizada Quant):* Reordena os títulos priorizando menor prazo até o vencimento (menor perda por deságio percentual) e melhor aproveitamento do teto de concentração, maximizando a função objetivo $\sum \text{Valor Líquido}$.
+- A API devolve o resultado otimizado, informa exatamente quantos reais a mais o algoritmo gerou para o cliente (ganho_otimizador_reais) e marca com salva_pelo_otimizador: true as notas que seriam recusadas na ordem original mas foram aprovadas graças à otimização!
+
+### Diferencial 4: Triplo Radar de Idempotência e Anti-Fraude (Cross-Fundo)
+Como cada empresa numera NU_DOCUMENTO do seu próprio jeito, a identidade canônica de um título no mercado brasileiro é uma chave composta normalizada:
+CHAVE_CANONICA = f"{limpar_doc(DOC_CEDENTE)}|{limpar_doc(DOC_SACADO)}|{NU_DOCUMENTO.strip().upper()}|{VALOR_NOMINAL:.2f}|{DATA_VENCIMENTO_ORIGINAL}"
+Geramos um SHA-256 dessa chave canônica e classificamos a duplicidade em *3 níveis distintos*:
+1. DUPLICIDADE_LOTE (Erro Operacional): A mesma chave apareceu duas vezes dentro do próprio CSV enviado no upload atual.
+2. DUPLICIDADE_FUNDO (Idempotência de Título): A chave já consta no hashes_antecipe_fidc (o próprio ANTECIPE FIDC já comprou essa nota antes).
+3. FRAUDE_OUTRO_FUNDO (Alerta Crítico de Dupla Cessão no Mercado): A chave consta no hashes_outros_fundos (o cedente já vendeu essa mesma nota fiscal para outro dos 17 fundos do estoque!).
+- Além disso, calculamos o hash_arquivo_csv do upload inteiro para garantir *idempotência de requisição na API*.
+
+### Diferencial 5: Avaliação Exaustiva (No Short-Circuit) + Tradutor de Economês Acionável
+Se uma nota viola 3 regras simultaneamente (ex: Prazo muito longo + Valor abaixo do mínimo + Concentração estourada), o motor *não para no primeiro if*. Ele avalia 100% dos validadores ativos e anexa todos os motivos de recusa na nota.
+Cada erro contém:
+- codigo: O código técnico do validadores_antecipe.json.
+- titulo_amigavel: Frase curta para badge na UI (ex: "Limite de crédito do cliente atingido").
+- mensagem_empresa: Explicação clara com os números reais daquela nota vs. o parâmetro da regra (ex: "Com esta nota de R$ 15.000,00, o cliente Supermercado Sul atingiria R$ 105.000,00 acumulados, superando o limite máximo de R$ 100.000,00 permitido pelo fundo.").
+- acao_recomendada: Instrução prática para o dono da empresa (ex: "Substitua esta nota por recebíveis de outros clientes ou aguarde a liquidação de títulos atuais deste sacado.").
+
+### Diferencial 6: Motor Zero-Deploy com Sandbox "What-If" para o Gestor
+O gestor do fundo pode alterar qualquer regra ou parâmetro via endpoint PUT /api/v1/validators (e pela gaveta lateral na interface). O back-end valida o schema, atualiza a configuração em memória e persiste no validadores_antecipe.json sem precisar reiniciar o container ou fazer deploy, permitindo revalidar o lote na tela em tempo real.
+
+---
+
+## 4. CONTRATO UNIFICADO E IMUTÁVEL DA API REST
+*URL Base:* http://localhost:8000/api/v1
+
+### 4.1. GET /api/v1/health
+Retorna o diagnóstico do motor e as estatísticas carregadas do estoque de 100k linhas:
+json
+{
+  "status": "ready",
+  "data_base_padrao": "22/10/2026",
+  "estoque_total_linhas": 100000,
+  "estoque_antecipe_linhas": 8450,
+  "patrimonio_antecipe_fidc": 18540230.00,
+  "fundos_monitorados": 18,
+  "regras_ativas_count": 6
+}
+
+
+
+### 4.2. GET /api/v1/validators e PUT /api/v1/validators
+
+* GET: Retorna o JSON completo atual de validadores_antecipe.json.
+* PUT: Recebe o JSON atualizado de validadores, aplica em memória no RuleEngine, salva em disco e retorna 200 OK com a nova configuração ativa.
+
+### 4.3. POST /api/v1/batches/validate
+
+* *Request (multipart/form-data):*
+* file: Arquivo .csv enviado pelo usuário.
+* data_base: String opcional dd/mm/aaaa (se omitido, usa a data_base_padrao detectada do estoque).
+* taxa_mensal: Float opcional (default 0.025, ou seja, 2,5% a.m., caso a taxa não esteja definida dentro do validadores_antecipe.json).
+* otimizar_lote: Booleano opcional (default true).
+
+
+* *Response 200 OK (JSON estrito que o Back-end produz e o Front-end consome):*
+
+json
+{
+  "meta": {
+    "batch_hash_idempotencia": "a8f5f167f44f4964e6c998dee827110c",
+    "tempo_processamento_ms": 14.2,
+    "data_base_utilizada": "22/10/2026",
+    "taxa_mensal_aplicada": 0.025,
+    "otimizador_ativo": true,
+    "valor_liquido_sem_otimizador": 380500.00,
+    "ganho_otimizador_reais": 33200.00,
+    "qtd_notas_salvas_otimizador": 3
+  },
+  "resumo": {
+    "total_notas": 50,
+    "qtd_aprovadas": 42,
+    "qtd_recusadas": 8,
+    "qtd_alertas_fraude": 1,
+    "valor_bruto_total": 500000.00,
+    "valor_bruto_aprovado": 420000.00,
+    "valor_bruto_recusado": 80000.00,
+    "desagio_total": 6300.00,
+    "valor_liquido_receber": 413700.00,
+    "prazo_medio_ponderado_dias": 18.5,
+    "contagem_por_motivo": [
+      {
+        "codigo": "CONCENTRACAO_SACADO",
+        "titulo_amigavel": "Limite de crédito do cliente atingido",
+        "quantidade": 5,
+        "valor_impactado": 55000.00
+      }
+    ]
+  },
+  "itens": [
+    {
+      "linha_csv": 1,
+      "ordem_avaliacao": 1,
+      "hash_titulo": "e3b0c44298fc1c149afbf4c8996fb924",
+      "nu_documento": "NF-9981",
+      "nome_cedente": "Indústria Metalúrgica Silva LTDA",
+      "doc_cedente": "12345678000199",
+      "nome_sacado": "Rede Supermercados Central SA",
+      "doc_sacado": "98765432000188",
+      "tipo_recebivel": "Duplicata",
+      "valor_nominal": 10000.00,
+      "data_vencimento": "21/11/2026",
+      "data_aquisicao": "22/10/2026",
+      "prazo_dias": 30,
+      "desagio_reais": 250.00,
+      "valor_liquido": 9750.00,
+      "status": "APROVADA",
+      "severidade": "OK",
+      "salva_pelo_otimizador": true,
+      "erros": []
+    }
+  ]
+
+
+}
+
+
+
+* *Valores permitidos para status:* "APROVADA" | "RECUSADA"
+* *Valores permitidos para severidade:* "OK" | "REGRA_NEGOCIO" | "DUPLICIDADE" | "FRAUDE"
+
+
+markdown
+# MINHA ATRIBUIÇÃO: ENGENHEIRO DE FRONT-END, UX FINANCEIRA E SIMULADOR "WHAT-IF" (DEV 2)
+
+Eu sou o Programador 2. Sou 100% responsável pela pasta frontend/.
+No desafio Antecipe, o critério de Design e Front-end exige: *"a jornada da empresa, do upload das notas até ver quanto vai receber e por que algumas foram recusadas. O desafio de UX é explicar a recusa de forma clara."*
+Além disso, preciso construir a interface do *Motor Zero-Deploy (Visão do Gestor)* para impressionar os jurados na apresentação ao vivo.
+
+## 1. STACK E ARQUITETURA DO FRONT-END
+- *Stack:* React 18 + TypeScript + Vite + Tailwind CSS + lucide-react (apenas bibliotecas leves e padrão, sem dependências complexas que quebrem no build).
+- *Design System:* Visual de Fintech B2B Premium (inspirado em Stripe, Brex e Stone): fundo slate-50, cards brancos com bordas sutis border-slate-200, tipografia tabular (tabular-nums) para valores em R$ sempre alinhados, verde esmeralda (emerald-600) para liquidez/aprovação, âmbar (amber-600) para recusas de negócio e vermelho (rose-600) para alertas de fraude/duplicidade.
+
+## 2. FUNCIONALIDADES E COMPONENTES OBRIGATÓRIOS DA TELA
+
+### 2.1. Modo Resiliente (API Real + Mock Inteligente de Segurança)
+- O serviço src/services/api.ts deve apontar para http://localhost:8000/api/v1.
+- *Diferencial de Segurança para Hackathon:* Inclua um botão discreto no Header *"Carregar Simulação Demo"* (e fallback automático caso o backend ainda esteja desligado durante o desenvolvimento) que popula a tela com um payload completo idêntico ao Contrato JSON da Parte 0, permitindo testar todos os filtros, modais e gráficos mesmo offline!
+
+### 2.2. Header Executivo & Barra de Parâmetros da Operação
+- Status da conexão com o motor (100k notas indexadas em RAM | 18 fundos monitorados | Processado em X ms).
+- Controles rápidos da simulação antes/depois do upload:
+  - Input de *Data-Base da Operação* (default "22/10/2026" - quinta-feira do dataset).
+  - Input de *Taxa de Antecipação (% a.m.)* (ex: 2,50% a.m.).
+  - Toggle Switch em destaque: *"Smart Batch Optimizer (Maximizar Caixa)"* com tooltip explicando que ordena as notas para aproveitar ao máximo o limite de concentração dos clientes.
+- Botão de destaque no canto direito: *"Modo Gestor: Regras do Fundo (Zero-Deploy)"* que abre o Drawer lateral.
+
+### 2.3. Zona de Upload & Checkout de Liquidez (O "Recibo de Caixa" da Empresa)
+Assim que o CSV é processado, exibir um painel financeiro estilo Checkout Bancário com 4 grandes blocos:
+1. *Valor Bruto Submetido:* R$ X e N notas enviadas.
+2. *Inelegíveis / Recusadas:* R$ Y e M notas recusadas (com barra de progresso visual Aprovado vs. Recusado e alerta vermelho pulsante se qtd_alertas_fraude > 0).
+3. *Deságio / Custo Financeiro:* - R$ Z (mostrando de forma transparente a memória de cálculo: Taxa de X% a.m. proporcional ao Prazo Médio Ponderado de W dias).
+4. *Valor Líquido na Conta Hoje (Card Principal em Verde):* R$ LÍQUIDO.
+   - *Badge do Otimizador:* Se meta.ganho_otimizador_reais > 0, exibir uma badge brilhante dentro do card: "+ R$ X liberados pelo Otimizador Inteligente (Y notas salvas do corte de limite!)".
+
+### 2.4. Raio-X das Recusas (Agrupador Visual Acionável)
+Logo abaixo dos cards, se houver notas recusadas, renderizar os cards de resumo.contagem_por_motivo:
+- Clicar em um card de motivo (ex: "Limite de crédito do cliente atingido - 5 notas - R$ 55.000") filtra automaticamente a tabela abaixo para mostrar apenas as notas afetadas por aquele problema!
+
+### 2.5. Tabela Inteligente de Recebíveis com "Raio-X Explicativo por Nota"
+- *Barra de Ferramentas da Tabela:*
+  - Abas de filtro com contadores: Todas (50) | Aprovadas (42) | Recusadas (8) | Salvas pelo Otimizador (3) | Alertas de Fraude (1).
+  - Campo de busca instantânea por Nome/CNPJ do Sacado, Cedente ou Nº do Documento.
+  - *2 Botões de Exportação Instantânea (Client-Side CSV):*
+    1. "Baixar Lote Aprovado (.csv)" -> Gera um CSV limpo no padrão ; apenas com as notas aprovadas.
+    2. "Baixar Relatório de Pendências (.csv)" -> Gera um CSV com as recusadas + coluna com a explicação em português claro para o financeiro da empresa corrigir.
+- *Linhas da Tabela e Expansor de UX:*
+  - Colunas: Nº Doc, Sacado (Nome + CNPJ formatado), Tipo, Vencimento (e prazo em dias), Valor Nominal, Deságio, *Valor Líquido* e *Status/Diagnóstico*.
+  - Se a nota tiver salva_pelo_otimizador == true, exibir uma tag "Salva pelo Otimizador".
+  - Se a nota for RECUSADA, exibir a badge do titulo_amigavel (e badge " Mais X motivos" se erros.length > 1). Ao clicar na linha, expandir um painel suave logo abaixo da linha mostrando para cada erro:
+    - *O que aconteceu (mensagem_empresa):* Texto claro com os números exatos.
+    - *Como resolver (acao_recomendada):* Box de dica prática para o empresário.
+
+### 2.6. Gaveta Lateral (Drawer): "Modo Gestor — Motor de Regras Zero-Deploy"
+- Ao abrir a gaveta, busca GET /api/v1/validators.
+- Renderiza um card para cada regra do validadores_antecipe.json com:
+  - Um toggle switch para ativo (true/false).
+  - Inputs editáveis dinamicamente para cada chave dentro de parametros (formatando nomes técnicos para rótulos legíveis).
+- Botão no rodapé da gaveta: *"Aplicar Regras sem Deploy e Recalcular Lote"*:
+  - Envia PUT /api/v1/validators e imediatamente dispara o POST /api/v1/batches/validate com o arquivo CSV atual em memória, mostrando um comparativo rápido de quanto o Valor Líquido subiu ou desceu após a mudança da regra pelo Gestor!
+
+## 3. O QUE VOCÊ DEVE GERAR AGORA
+Com base no Contrato JSON da Parte 0 e no validadores_antecipe.json colado abaixo:
+1. Gere src/types/api.ts com todas as interfaces TypeScript.
+2. Gere src/utils/formatters.ts (formatação de moeda BRL, CNPJ/CPF, datas, exportador de CSV client-side).
+3. Gere src/services/api.ts (com as chamadas fetch reais + o gerador de Mock realista).
+4. Gere os componentes completos e o src/App.tsx (código 100% completo, sem cortar partes com comentários).
+
+{
+  "fundo": {
+    "nome": "ANTECIPE FIDC",
+    "cnpj": "92.234.400/0001-80"
+  },
+  "validadores": [
+    {
+      "codigo": "CNPJ_SACADO_VALIDO",
+      "ativo": true,
+      "parametros": {}
+    },
+    {
+      "codigo": "SITUACAO_CADASTRAL_SACADO",
+      "ativo": true,
+      "parametros": {
+        "situacoes_aceitas": [
+          "ATIVA"
+        ]
+      }
+    },
+    {
+      "codigo": "TIPO_RECEBIVEL",
+      "ativo": true,
+      "parametros": {
+        "tipos_aceitos": [
+          "Duplicata",
+          "Duplicata de Serviço"
+        ]
+      }
+    },
+    {
+      "codigo": "VALOR_MINIMO",
+      "ativo": true,
+      "parametros": {
+        "valor_minimo": 100.0
+      }
+    },
+    {
+      "codigo": "NAO_VENCIDA",
+      "ativo": true,
+      "parametros": {}
+    },
+    {
+      "codigo": "PRAZO_MAXIMO",
+      "ativo": true,
+      "parametros": {
+        "prazo_maximo_dias": 180
+      }
+    },
+    {
+      "codigo": "CONCENTRACAO_MAXIMA_SACADO",
+      "ativo": true,
+      "parametros": {
+        "percentual_maximo": 10.0,
+        "agrupamento": "RAIZ_CNPJ"
+      }
+    },
+    {
+      "codigo": "PRAZO_MINIMO",
+      "ativo": false,
+      "parametros": {
+        "prazo_minimo_dias": 30
+      }
+    },
+    {
+      "codigo": "CONCENTRACAO_MAXIMA_CEDENTE",
+      "ativo": false,
+      "parametros": {
+        "percentual_maximo": 8.0
+      }
+    }
+  ],
+  "precificacao": {
+    "metodo": "DESCONTO_SIMPLES",
+    "taxa_mensal_percentual": 2.0,
+    "base_dias": 30
+  }
+}
+
+Quero que você analise o contexto completo deste projeto antes de realizar qualquer ação.
+
+Por enquanto, sua única tarefa é compreender o projeto. Não faça nenhuma alteração.
+
+Analise os arquivos, a estrutura de diretórios, o código existente, as dependências, as tecnologias utilizadas, a arquitetura e o funcionamento geral da aplicação.
+
+Procure entender:
+Qual é o objetivo do projeto e quais problemas ele busca resolver.
+
+Como os diferentes módulos e arquivos se relacionam.
+
+Quais tecnologias, bibliotecas e ferramentas são utilizadas.
+
+Quais funcionalidades já estão implementadas.
+
+Quais padrões de código e convenções o projeto utiliza.
+
+Quais são os pontos importantes da arquitetura e das regras de negócio.
+
+Se existem problemas aparentes, inconsistências ou funcionalidades incompletas.
+
+Restrições obrigatórias nesta etapa:
+
+Não edite, crie, exclua, mova ou renomeie arquivos.
+
+Não instale dependências nem execute comandos que alterem o ambiente.
+
+Não implemente soluções, não corrija problemas e não refatore o código.
+
+Não faça alterações no Git, commits, branches ou configurações.
+
+Limite-se a ler e analisar o conteúdo existente.
+
+================================================================================
+RESPOSTA 1
+================================================================================
+# Análise do projeto Antecipe Pro (sem alterações)
+
+## 1. O que existe no repositório hoje
+
+O repositório está praticamente vazio:
+
+```
+Kanastra/
+└── KanaBootCamp/          ← repo git (origin: github.com/FrankTarga/KanaBootCamp)
+    ├── .git/
+    └── README.md          ← só "# KanaBootCamp"
+```
+
+- **Git:** branch `main`, um único commit (`382d9b0 Initial commit`), nada pendente, em dia com `origin/main`.
+- **Não há código.** Faltam `frontend/` e `backend/`, além de `package.json`, `validadores_antecipe.json` e `estoque_antecipe.csv`.
+- Não há dependências, tecnologias configuradas nem padrões de código para seguir. **A única referência real é a especificação que você colou.** Por isso o resto desta análise é sobre ela.
+
+## 2. Como entendi o sistema
+
+```mermaid
+flowchart LR
+  CSV["Upload CSV (lote do cedente)"] --> API["POST /batches/validate"]
+  EST["estoque_antecipe.csv (100k, 18 fundos)"] -->|startup| IDX["Índices em RAM: hashes, exposição sacado/cedente, PL"]
+  VAL["validadores_antecipe.json"] <-->|GET/PUT sem deploy| ENG["Motor de regras"]
+  API --> ENG
+  IDX --> ENG
+  ENG --> SL["Shadow Ledger + 2 passagens do otimizador"]
+  SL --> RESP["meta + resumo + itens"]
+  RESP --> FE["Front: recibo, raio-X das recusas, tabela, painel do gestor"]
+```
+
+- **Objetivo:** a empresa (cedente) antecipa recebíveis com o ANTECIPE FIDC. O sistema valida as regras de elegibilidade e o risco contra a carteira do fundo, calcula o deságio e explica as recusas em linguagem simples.
+- **Minha parte (Dev 2):** só a pasta `frontend/`, consumindo o contrato `/api/v1`, com mock para quando o backend não responder.
+- **Regras de negócio principais:**
+  - Data-base fixa em 22/10/2026 (quinta). Hoje é sábado, 24/10, então nunca usar a data atual.
+  - Desconto simples: `deságio = VN × taxa × prazo / 30`.
+  - As duplicidades são verificadas em 3 níveis: no próprio lote, no próprio fundo e em outros fundos (possível fraude).
+  - A avaliação é completa: a nota passa por todas as regras, mesmo depois da primeira falha.
+
+## 3. Inconsistências no contrato que afetam o front
+
+| # | Problema | Impacto |
+|---|---|---|
+| 1 | O exemplo de motivo usa o código `CONCENTRACAO_SACADO`, mas o JSON de regras usa `CONCENTRACAO_MAXIMA_SACADO`. | Mapeamentos de ícone ou cor por `codigo` podem não bater. |
+| 2 | A taxa aparece em duas unidades: a API usa fração (`taxa_mensal: 0.025`), o JSON usa percentual (`taxa_mensal_percentual: 2.0`). Os padrões também divergem (2,5% vs 2,0%). | Não está claro qual valor prevalece. O campo da tela em "% a.m." precisa ser convertido (2,50 → 0.025). |
+| 3 | O texto pede SHA-256 (64 caracteres hex), mas os hashes do exemplo têm 32 (tamanho de MD5). | O front não deve assumir tamanho fixo; basta truncar na exibição. |
+| 4 | `/health` mostra `regras_ativas_count: 6`, mas o JSON tem **7** regras ativas. | Só afeta o mock. |
+| 5 | Os códigos `DUPLICIDADE_LOTE`, `DUPLICIDADE_FUNDO` e `FRAUDE_OUTRO_FUNDO` não estão no JSON de regras. São verificações fixas do motor. | O painel do gestor não consegue desligá-las; isso precisa ficar claro na interface. |
+| 6 | Cada erro não tem campo de severidade; só a nota tem. | Para saber qual erro é fraude, o front vai depender do `codigo`. Quando há vários erros, a nota fica com a severidade de maior prioridade (FRAUDE > DUPLICIDADE > REGRA_NEGOCIO). Falta combinar isso com o backend. |
+| 7 | A regra de concentração usa `agrupamento: "RAIZ_CNPJ"` (8 primeiros dígitos), mas o índice é descrito por `DOC_SACADO` completo. | As mensagens de limite podem mostrar valores diferentes do esperado. A decisão é do backend. |
+| 8 | `SITUACAO_CADASTRAL_SACADO` depende de dado da Receita que não vem no CSV. | É do backend, mas pode gerar recusas inesperadas na demonstração. |
+| 9 | Os números de exemplo não fecham entre si: o deságio de 250 corresponde a 2,5%, e o resumo (6.300 sobre 420k em 18,5 dias) não bate nem com 2% nem com 2,5%. | Meu mock deve gerar valores coerentes, não copiar o exemplo. |
+| 10 | O PUT espera o JSON completo, incluindo `fundo` e `precificacao`. | O painel do gestor precisa preservar esses blocos. Não está definido se a precificação pode ser editada lá. |
+
+## 4. Cuidados técnicos para o front
+
+- **Formatos:** o campo de data do navegador entrega `yyyy-mm-dd`, e a API espera `dd/mm/aaaa`. No multipart, `otimizar_lote` vai como `"true"`/`"false"` e a taxa com ponto decimal.
+- **CORS:** o backend precisa liberar `localhost:5173` (porta padrão do Vite). Vale avisar o Dev 1.
+- **Fallback para o mock:** precisa de um aviso bem visível de "Modo Demo". Sem isso, um erro real do backend no meio da apresentação passaria por resultado válido.
+- **Recalcular após mudar regras:** exige guardar o `File` do último upload em memória e o `valor_liquido_receber` anterior, para mostrar a diferença.
+- **Campos do painel do gestor:** os parâmetros têm tipos diferentes e cada um pede um tipo de campo:
+  - número: `valor_minimo`, `percentual_maximo`
+  - lista de textos: `tipos_aceitos`, `situacoes_aceitas`
+  - opção fixa: `agrupamento`
+  - vazio: `{}` (só o liga/desliga)
+- **Tailwind:** a versão não foi definida. A v3 usa `tailwind.config.js`; a v4 usa `@tailwindcss/vite` e configuração por CSS.
+
+## 5. Decisões a confirmar antes de codificar
+
+1. **Tailwind v3 ou v4?** Sugiro a v3.4, que é mais estável para gerar código rápido hoje.
+2. **Qual taxa padrão:** a da tela/API (2,5%) ou a do `precificacao` do JSON (2,0%)? Sugiro que a tela comece com o valor do JSON e o envie explicitamente.
+3. **Onde fica a pasta:** `KanaBootCamp/frontend/` (monorepo, com o backend em `KanaBootCamp/backend/`)?
+4. **O painel do gestor deve editar a `precificacao`** ou só as regras?
+5. **Códigos de erro:** posso considerar como canônicos os do JSON (`CONCENTRACAO_MAXIMA_SACADO` etc.) mais os 3 de duplicidade/fraude?
+
+Quando você responder, gero os arquivos do item 3 da sua lista: `types/api.ts`, `utils/formatters.ts`, `services/api.ts`, os componentes e o `App.tsx`.

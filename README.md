@@ -131,3 +131,56 @@ Data-base padrão: **22/10/2026**, o próximo dia útil após a maior `DATA_AQUI
 | [`03_demo_radar_antifraude.csv`](samples/03_demo_radar_antifraude.csv) | nota repetida no lote, 2 notas já compradas pelo ANTECIPE (uma com os zeros cortados pelo Excel) e 3 notas já na carteira de outros fundos (alerta de fraude) |
 
 Zero-deploy ao vivo: suba o `01`, desative `VALOR_MINIMO` ou ative `PRAZO_MINIMO` (gaveta do gestor ou `PUT /api/v1/validators`) e revalide; o resultado muda sem reiniciar nada.
+## Modelagem Matemática, Decisões de Algoritmo e Análise de Dados
+
+### Precificação: desconto comercial simples, pro-rata die (2% a.m.)
+
+Cada nota é precificada por `precificar()` em `quant_analytics.py`, usando desconto comercial simples na convenção de `base_dias` (30, conforme `validadores_antecipe.json -> precificacao`):
+
+```
+deságio      = valor_nominal * (taxa_mensal / base_dias) * prazo_dias
+valor_líquido = valor_nominal - deságio
+```
+
+A taxa usada é resolvida por `RuleEngine.taxa_configurada()`: se `validadores_antecipe.json` tiver o bloco `precificacao.taxa_mensal_percentual`, essa é a taxa aplicada — **2,0% a.m.**, a taxa que o fundo efetivamente configurou — e só cai para o default de 2,5% a.m. da API se o bloco não existir. O gestor pode trocar essa taxa a qualquer momento pela tela "Zero-Deploy" sem redeploy.
+
+O módulo também suporta desconto composto (`DESCONTO_COMPOSTO`), caso o fundo decida migrar de convenção no futuro, sem alterar o contrato da API.
+
+### Smart Batch Optimizer: mochila 0/1 real, não apenas reordenação gulosa
+
+Quando o limite de concentração de um sacado ou cedente é insuficiente para todas as notas elegíveis de um lote, o problema é formalmente um **Knapsack Problem 0/1** sob restrição de capacidade: maximizar a soma do valor líquido das notas aceitas sem ultrapassar a folga de concentração disponível.
+
+`ordenar_lote_otimizado()` resolve isso em três passos:
+
+1. **Notas de grupos sem pressão de concentração** entram primeiro, ordenadas por menor prazo — elas aumentam o patrimônio do fundo e abrem espaço (folga) para os grupos que estão sob pressão, sem custo de oportunidade algum.
+2. **Grupos pressionados** (onde a soma das notas elegíveis excede a folga projetada) passam por uma **mochila 0/1 por programação dinâmica** (`_mochila()`), que escolhe o subconjunto de notas que maximiza Σ valor líquido dentro da folga restante — com a capacidade discretizada em até 2.000 níveis de resolução para manter o tempo de execução em milissegundos mesmo em lotes grandes.
+3. O motor (`rule_engine.gerar_ordens_candidatas`) simula essa ordem e mais 4 ordens candidatas (original do CSV, por menor prazo, por maior valor, por menor valor) e fica com a que realmente produz o maior valor líquido simulado — nunca assume que a heurística ganhou sem checar.
+
+Essa abordagem é estritamente melhor do que apenas ordenar por eficiência de deságio: a mochila encontra a combinação ótima de notas para a folga disponível, mesmo quando a nota "mais eficiente" sozinha não é a melhor escolha em conjunto com as demais.
+
+### Validação stateful (Shadow Ledger) e concentração por raiz de CNPJ
+
+A concentração de crédito é avaliada de forma acumulativa dentro do próprio lote: a cada nota aprovada, seu valor nominal é somado imediatamente a um `ShadowLedger` (overlay em memória sobre as exposições do estoque) antes da próxima nota ser avaliada. Isso impede que três notas de R$ 5.000 para o mesmo sacado, com limite de R$ 10.000, sejam todas aprovadas só porque a validação olhou apenas a foto estática do estoque inicial.
+
+`CONCENTRACAO_MAXIMA_SACADO` usa `agrupamento: "RAIZ_CNPJ"` — a exposição é somada pelos 8 primeiros dígitos do CNPJ, ignorando a filial, para que duas filiais do mesmo grupo econômico não "driblem" o teto abrindo CNPJs de filial diferentes. Para CPF (pessoa física) não existe esse conceito e o documento completo é usado.
+
+### Triplo radar de duplicidade/fraude
+
+A identidade canônica de um título é `doc_cedente|doc_sacado|nu_documento|valor_nominal|data_vencimento`, normalizada e transformada em SHA-256 (`stock_index.gerar_hash_titulo`). A normalização do `NU_DOCUMENTO` remove zeros à esquerda em campos puramente numéricos — um detalhe que importa na prática: o Excel converte `"000351156"` em `"351156"` ao salvar, e sem essa normalização um recebível reenviado escaparia do radar de duplicidade. Essa chave sustenta 3 níveis de verificação:
+
+1. **`DUPLICIDADE_LOTE`** — a mesma chave aparece duas vezes no próprio arquivo enviado.
+2. **`DUPLICIDADE_FUNDO`** — a chave já existe na carteira histórica do ANTECIPE FIDC.
+3. **`FRAUDE_OUTRO_FUNDO`** — a chave existe no estoque associada a outro dos 17 fundos do mercado (indício de dupla cessão).
+
+### Análise do estoque real (100.554 linhas)
+
+Rodando `scripts/raio_x_e_gerador_samples.py` contra o `estoque_antecipe.csv` completo:
+
+- **10.621 linhas** pertencem ao ANTECIPE FIDC, com **patrimônio de R$ 53.074.028,00**.
+- Data-base detectada automaticamente: **22/10/2026** (dia útil seguinte à maior `DATA_AQUISICAO` do estoque, 21/10/2026).
+- **Achado relevante para o gestor:** o sacado SERRALHERIA VIOLETA S.A. (58.206.002/0001-11) já está **exatamente no teto de 10% de concentração** (R$ 6.634.253,50 acumulados, limite R$ 5.307.402,80 projetado — ou seja, já ultrapassado hoje, considerando o patrimônio atual). Qualquer nova nota para esse sacado será recusada pela regra `CONCENTRACAO_MAXIMA_SACADO` até o patrimônio do fundo crescer ou títulos existentes dele serem liquidados. Vale mostrar esse caso real na demo para os jurados — é exatamente o cenário que o Shadow Ledger e o Smart Batch Optimizer existem para proteger.
+- Entre os cedentes, os 5 maiores já ultrapassam o teto de 8% de `CONCENTRACAO_MAXIMA_CEDENTE` — mas essa regra está **inativa** no `validadores_antecipe.json` atual, então não bloqueia hoje (o gestor pode ativá-la pela tela Zero-Deploy a qualquer momento para ver esses cedentes passarem a ser limitados).
+
+### Massas de demonstração (`samples/`)
+
+Os 3 CSVs em `samples/` já estão ajustados aos números do "Roteiro de demo" acima e não foram alterados por esta análise. `scripts/raio_x_e_gerador_samples.py` fica disponível no repositório para regenerá-los a partir do estoque real sempre que for preciso (por exemplo, se o `estoque_antecipe.csv` for atualizado antes da apresentação) — mas regenerar troca os números citados no Roteiro de demo, então só rodar de novo com o time ciente, revisando o README junto.

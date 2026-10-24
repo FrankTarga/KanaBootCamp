@@ -1,9 +1,42 @@
 // Tipos espelhados do contrato REST (backend/app/api_schemas.py). Base: /api/v1
+// Mudou um, muda o outro no mesmo commit.
 
 export type StatusNota = "APROVADA" | "RECUSADA";
 export type Severidade = "OK" | "REGRA_NEGOCIO" | "DUPLICIDADE" | "FRAUDE";
 
+// ---------------------------------------------------------------------------
+// Códigos canônicos de erro (decisão do time: os do validadores_antecipe.json
+// + verificações de integridade do motor). Mantidos em sincronia com REGRAS
+// em backend/app/rule_engine.py.
+// ---------------------------------------------------------------------------
+
+/** Regras configuráveis pelo gestor no validadores_antecipe.json. */
+export type CodigoRegraConfiguravel =
+  | "CNPJ_SACADO_VALIDO"
+  | "SITUACAO_CADASTRAL_SACADO"
+  | "TIPO_RECEBIVEL"
+  | "VALOR_MINIMO"
+  | "NAO_VENCIDA"
+  | "PRAZO_MAXIMO"
+  | "CONCENTRACAO_MAXIMA_SACADO"
+  | "PRAZO_MINIMO"
+  | "CONCENTRACAO_MAXIMA_CEDENTE"
+  | "CNPJ_CEDENTE_VALIDO"
+  | "VALOR_MAXIMO"
+  | "DOCUMENTO_BLOQUEADO";
+
+/** Verificações de integridade que o motor sempre executa (triplo radar). */
+export type CodigoVerificacaoSistema = "DUPLICIDADE_LOTE" | "DUPLICIDADE_FUNDO" | "FRAUDE_OUTRO_FUNDO";
+
+/** Linha do CSV ilegível (valor, data ou campos obrigatórios). */
+export type CodigoFormato = "FORMATO_INVALIDO";
+
+export type CodigoErro = CodigoRegraConfiguravel | CodigoVerificacaoSistema | CodigoFormato;
+
+// ---------------------------------------------------------------------------
 // GET /health
+// ---------------------------------------------------------------------------
+
 export interface HealthResponse {
   status: "ready" | "loading";
   data_base_padrao: string; // dd/mm/aaaa
@@ -16,26 +49,39 @@ export interface HealthResponse {
   versao_config: number;
 }
 
+// ---------------------------------------------------------------------------
 // GET/PUT /validators (validadores_antecipe.json)
+// ---------------------------------------------------------------------------
+
+export type ValorParametro = string | number | boolean | string[] | number[] | null;
+
 export interface ValidadorConfig {
   codigo: string;
   ativo: boolean;
-  parametros: Record<string, unknown>;
+  parametros: Record<string, ValorParametro>;
+}
+
+export type MetodoPrecificacao = "DESCONTO_SIMPLES" | "DESCONTO_COMPOSTO";
+
+export interface PrecificacaoConfig {
+  metodo: MetodoPrecificacao;
+  /** Percentual ao mês no JSON (2.0 = 2% a.m.). A API de validação recebe a fração (0.02). */
+  taxa_mensal_percentual: number | null;
+  base_dias: number;
 }
 
 export interface ValidadoresConfig {
   fundo: { nome: string; cnpj: string };
   validadores: ValidadorConfig[];
-  precificacao?: {
-    metodo: "DESCONTO_SIMPLES" | "DESCONTO_COMPOSTO";
-    taxa_mensal_percentual: number | null;
-    base_dias: number;
-  };
+  precificacao?: PrecificacaoConfig;
 }
 
+// ---------------------------------------------------------------------------
 // POST /batches/validate
+// ---------------------------------------------------------------------------
+
 export interface ErroNota {
-  codigo: string;
+  codigo: CodigoErro;
   titulo_amigavel: string;
   mensagem_empresa: string;
   acao_recomendada: string;
@@ -52,8 +98,8 @@ export interface ItemLote {
   doc_sacado: string;
   tipo_recebivel: string;
   valor_nominal: number;
-  data_vencimento: string;
-  data_aquisicao: string;
+  data_vencimento: string; // dd/mm/aaaa
+  data_aquisicao: string; // dd/mm/aaaa
   prazo_dias: number;
   desagio_reais: number;
   valor_liquido: number;
@@ -64,7 +110,7 @@ export interface ItemLote {
 }
 
 export interface ContagemMotivo {
-  codigo: string;
+  codigo: CodigoErro;
   titulo_amigavel: string;
   quantidade: number;
   valor_impactado: number;
@@ -88,7 +134,7 @@ export interface MetaLote {
   batch_hash_idempotencia: string;
   tempo_processamento_ms: number;
   data_base_utilizada: string;
-  taxa_mensal_aplicada: number;
+  taxa_mensal_aplicada: number; // fração: 0.02 = 2% a.m.
   otimizador_ativo: boolean;
   valor_liquido_sem_otimizador: number;
   ganho_otimizador_reais: number;
@@ -103,7 +149,7 @@ export interface BatchValidationResponse {
 
 export interface OpcoesValidacao {
   dataBase?: string; // dd/mm/aaaa
-  taxaMensal?: number; // decimal: 0.025 = 2,5% a.m.
+  taxaMensal?: number; // fração: 0.02 = 2% a.m.
   otimizarLote?: boolean; // padrão true
   validadoresOverride?: ValidadoresConfig; // what-if do gestor: simula sem salvar
 }
@@ -111,4 +157,27 @@ export interface OpcoesValidacao {
 // Formato único de erro da API
 export interface ErroApiCorpo {
   error: { code: string; message: string; details: unknown[] };
+}
+
+// ---------------------------------------------------------------------------
+// Tipos exclusivos do front-end
+// ---------------------------------------------------------------------------
+
+/** De onde veio o resultado exibido: motor real (FastAPI) ou motor de demonstração local. */
+export type FonteDados = "api" | "demo";
+
+export interface ResultadoProcessamento {
+  dados: BatchValidationResponse;
+  fonte: FonteDados;
+  replayIdempotente: boolean;
+}
+
+/** Comparativo antes/depois de uma mudança de regra do gestor. */
+export interface ComparativoRegras {
+  tipo: "aplicado" | "simulado";
+  liquidoAntes: number;
+  liquidoDepois: number;
+  aprovadasAntes: number;
+  aprovadasDepois: number;
+  totalNotas: number;
 }

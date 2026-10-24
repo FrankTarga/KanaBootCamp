@@ -1,50 +1,100 @@
 import { useEffect, useState } from "react";
+import { Activity, Database, ShieldCheck, Zap } from "lucide-react";
+import { obterHealth } from "../services/api";
+import type { FonteDados, HealthResponse } from "../types/api";
+import { formatarMoeda } from "../utils/formatters";
 
-import { API_URL, ApiError, USAR_MOCK, obterHealth } from "../services/api";
-import type { HealthResponse } from "../types/api";
+interface StatusApiProps {
+  tempoProcessamentoMs?: number;
+  dataBase?: string;
+}
 
-const brl = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-
-export function StatusApi() {
+export function StatusApi({ tempoProcessamentoMs, dataBase }: StatusApiProps) {
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  const [fonte, setFonte] = useState<FonteDados>("demo");
+  const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
-    if (USAR_MOCK) return;
+    let ativo = true;
     obterHealth()
-      .then(setHealth)
-      .catch((e: unknown) => setErro(e instanceof ApiError ? e.message : String(e)));
+      .then((res) => {
+        if (ativo) {
+          setHealth(res.dados);
+          setFonte(res.fonte);
+          setCarregando(false);
+        }
+      })
+      .catch(() => {
+        if (ativo) setCarregando(false);
+      });
+
+    return () => {
+      ativo = false;
+    };
   }, []);
 
-  if (USAR_MOCK) {
-    return <p className="text-sm text-amber-700">Modo mock ativo (VITE_USE_MOCK=true).</p>;
+  if (carregando) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-slate-500 animate-pulse">
+        <Activity className="h-3.5 w-3.5 text-slate-400" />
+        <span>Conectando ao motor de risco...</span>
+      </div>
+    );
   }
-  if (erro) {
-    return <p className="text-sm text-red-700">{erro}</p>;
-  }
-  if (!health) {
-    return <p className="text-sm text-slate-500">Conectando a {API_URL}…</p>;
-  }
+
+  const isReal = fonte === "api";
+
   return (
-    <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-      <div>
-        <dt className="text-slate-500">Data-base</dt>
-        <dd className="font-semibold">{health.data_base_padrao}</dd>
+    <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600 bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <div className="flex items-center gap-1.5 font-medium">
+          <span className="relative flex h-2 w-2">
+            <span
+              className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                isReal ? "bg-emerald-400" : "bg-amber-400"
+              }`}
+            />
+            <span
+              className={`relative inline-flex rounded-full h-2 w-2 ${
+                isReal ? "bg-emerald-500" : "bg-amber-500"
+              }`}
+            />
+          </span>
+          <span className={isReal ? "text-emerald-800 font-semibold" : "text-amber-800 font-semibold"}>
+            {isReal ? "Motor Online (FastAPI)" : "Modo Contingência (Demo)"}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 text-slate-600">
+          <Database className="h-3.5 w-3.5 text-slate-400" />
+          <span>
+            <strong className="text-slate-800 money">
+              {health ? health.estoque_total_linhas.toLocaleString("pt-BR") : "100.554"}
+            </strong>{" "}
+            títulos monitorados ({health ? health.fundos_monitorados : 18} fundos em RAM)
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 text-slate-600">
+          <ShieldCheck className="h-3.5 w-3.5 text-slate-400" />
+          <span>
+            PL ANTECIPE:{" "}
+            <strong className="text-slate-800 money">
+              {formatarMoeda(health?.patrimonio_antecipe_fidc ?? 18540230)}
+            </strong>
+          </span>
+        </div>
       </div>
-      <div>
-        <dt className="text-slate-500">Patrimônio ANTECIPE</dt>
-        <dd className="font-semibold">{brl.format(health.patrimonio_antecipe_fidc)}</dd>
+
+      <div className="flex items-center gap-3 text-slate-500 text-[11px]">
+        {tempoProcessamentoMs !== undefined && (
+          <div className="flex items-center gap-1 font-mono text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded shadow-2xs">
+            <Zap className="h-3 w-3 text-amber-500" />
+            <span>{tempoProcessamentoMs.toFixed(1)} ms</span>
+          </div>
+        )}
+        <span>Data-Base: <strong className="text-slate-700">{dataBase || health?.data_base_padrao || "22/10/2026"}</strong></span>
       </div>
-      <div>
-        <dt className="text-slate-500">Estoque monitorado</dt>
-        <dd className="font-semibold">
-          {health.estoque_total_linhas.toLocaleString("pt-BR")} títulos · {health.fundos_monitorados} fundos
-        </dd>
-      </div>
-      <div>
-        <dt className="text-slate-500">Regras ativas</dt>
-        <dd className="font-semibold">{health.regras_ativas_count}</dd>
-      </div>
-    </dl>
+    </div>
   );
 }
