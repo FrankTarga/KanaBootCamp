@@ -51,6 +51,8 @@ Docs interativas: http://localhost:8000/docs
 | `DATA_BASE_PADRAO` | D+1 útil da maior `DATA_AQUISICAO` (22/10/2026) | força a data-base (`dd/mm/aaaa`) |
 | `MAX_UPLOAD_MB` | 50 | tamanho máximo do CSV de upload |
 | `MAX_LINHAS_LOTE` | 10000 | máximo de notas por lote |
+| `HISTORICO_DB_PATH` | `backend/data/historico.db` | SQLite com o histórico de lotes e das mudanças de regra (fica no volume do Docker; fora do Git) |
+| `CACHE_MAX_NOTAS` | 5000 | respostas com mais notas que isso não entram no cache de idempotência (uma carteira de 100k ocupa ~65 MB) |
 | `RECEITA_API_URL` | — | base da consulta de CNPJ (ex.: `http://127.0.0.1:8001/api/cnpj/v1` do mock ou `https://brasilapi.com.br/api/cnpj/v1`); sem ela, usa `situacao_cadastral.json` |
 | `RECEITA_TIMEOUT_S` | 2 | timeout de cada consulta |
 | `SITUACAO_FONTE` (no mock-receita) | `gabarito` | `gabarito`, `kanastra` (CSV oficial) ou `formato` (só checagem do CNPJ); ver README principal |

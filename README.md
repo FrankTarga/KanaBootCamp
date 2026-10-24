@@ -17,7 +17,7 @@ docker compose ps             # backend e mock-receita devem ficar "healthy"
 - Front-end: http://localhost:5173
 - API: http://localhost:8000/api/v1 · docs interativas em http://localhost:8000/docs
 - O mock da Receita só fica acessível na rede interna do compose; a API o consulta em `http://mock-receita:8001`.
-- Variáveis (no `.env`, todas opcionais): `ADMIN_API_KEY`, que sem ela deixa tudo funcionando e só o `PUT` das regras responde 403; e `SITUACAO_FONTE` (`gabarito`, o padrão, `kanastra` ou `formato`; ver *Situação cadastral*).
+- Variáveis (no `.env`, todas opcionais): `VITE_API_URL`, que **na VPS precisa ser** `http://<IP-ou-dominio>:8000/api/v1`, porque é a URL que o navegador do usuário usa; `ADMIN_API_KEY`, que sem ela deixa tudo funcionando e só o `PUT` das regras responde 403; e `SITUACAO_FONTE` (`gabarito`, o padrão, `kanastra` ou `formato`; ver *Situação cadastral*).
 
 Sem Docker (PowerShell, Windows), um terminal por serviço:
 
@@ -86,6 +86,8 @@ Testes do back-end: `cd backend; .\.venv\Scripts\python -m pytest tests -q`
 | GET | `/api/v1/validators` | JSON de regras atual |
 | PUT | `/api/v1/validators` | troca as regras em memória e salva em disco (sem restart); exige header `X-API-Key` = env `ADMIN_API_KEY` (401 sem a chave, 403 se a env não estiver definida) |
 | POST | `/api/v1/portfolio/validate` | `multipart/form-data`: `file` (carteira/estoque inteiro). Saída no formato do gabarito oficial; ver *Modo carteira* |
+| GET | `/api/v1/historico/lotes?limite=50&offset=0` | histórico de validações (SQLite): chave completa, parâmetros, totais e se veio do cache. Paginado, mais recente primeiro |
+| GET | `/api/v1/historico/regras?limite=50&offset=0` | auditoria: cada `PUT /validators` aceito, com versão, data e o JSON das regras |
 | POST | `/api/v1/batches/validate` | `multipart/form-data`: `file`, `data_base?`, `taxa_mensal?`, `otimizar_lote?`, `validadores_override?`, `modo?` (`lote`, o padrão, ou `carteira`) |
 
 Os tipos exatos estão em [`frontend/src/types/api.ts`](frontend/src/types/api.ts), espelho de [`backend/app/api_schemas.py`](backend/app/api_schemas.py). Mudou um, muda o outro no mesmo commit.
@@ -209,7 +211,7 @@ Os 3 CSVs em `samples/` já estão ajustados aos números do "Roteiro de demo" a
 
 **O que construímos.** Um portal de antecipação para o ANTECIPE FIDC. A empresa envia o CSV e vê, para cada nota, se foi aprovada ou recusada, o motivo explicado em português simples com o que fazer, o valor líquido de cada nota e o total a receber. O gestor muda as regras pela tela ou pela API sem deploy e simula o efeito antes de salvar. A mesma validação existe pela tela e pela API, e o modo carteira reproduz o gabarito oficial nas 100.554 linhas.
 
-**Tecnologias.** Back-end em Python 3.12 + FastAPI + Pydantic v2, com o estoque indexado em memória (sem banco). Front-end em React + Vite + Tailwind + TypeScript. Mock da Receita em FastAPI no formato da BrasilAPI. Testes com pytest (141 testes, 98% de cobertura de branches). Tudo sobe com Docker Compose.
+**Tecnologias.** Back-end em Python 3.12 + FastAPI + Pydantic v2, com o estoque indexado em memória para leitura O(1) e SQLite (biblioteca padrão) só para o histórico de lotes e a auditoria das regras. Front-end em React + Vite + Tailwind + TypeScript. Mock da Receita em FastAPI no formato da BrasilAPI. Testes com pytest (141 testes, 98% de cobertura de branches). Tudo sobe com Docker Compose.
 
 **Principais decisões.**
 - Regras 100% lidas do `validadores_antecipe.json`, validadas no `PUT` e trocadas em memória sem reiniciar.
@@ -222,7 +224,6 @@ Os 3 CSVs em `samples/` já estão ajustados aos números do "Roteiro de demo" a
 - Situação cadastral real: o kit não trouxe a fonte da organização, e a Receita real diverge dos CNPJs sintéticos do dataset. Usamos uma lista de referência extraída do gabarito (decisão do time).
 - Efetivar a compra: o sistema valida e precifica, mas não registra a cessão nem atualiza o estoque.
 - Usuários e perfis: o `PUT` das regras é protegido por uma chave única, sem login.
-- Histórico entre lotes (banco de dados): cada validação é independente.
 - Escala horizontal: o estado fica em memória, então a API roda com 1 processo.
 - Feriados: a data-base D+1 útil considera só os fins de semana.
 

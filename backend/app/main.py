@@ -17,15 +17,23 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, File, Form, Header, Request, Response, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, Header, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .api_schemas import BatchValidationResponse, ErroApi, HealthResponse, ValidadoresConfig
+from .api_schemas import (
+    BatchValidationResponse,
+    ErroApi,
+    HealthResponse,
+    PaginaHistoricoLotes,
+    PaginaMudancasRegras,
+    ValidadoresConfig,
+)
 from .br_utils import formatar_data_br, parse_data_br
+from .historico import Historico
 from .rule_engine import (
     CadastroSituacao,
     ErroArquivoLote,
@@ -50,10 +58,12 @@ class Settings:
     estoque_path: Path
     validadores_path: Path
     cadastro_path: Path
+    historico_path: Path
     data_base_padrao: date | None
     max_upload_bytes: int
     max_linhas_lote: int
     cache_idempotencia: int
+    cache_max_notas: int
     receita_api_url: str | None
     receita_timeout_s: float
     admin_api_key: str | None
@@ -66,10 +76,12 @@ def carregar_settings() -> Settings:
         estoque_path=Path(os.getenv("ESTOQUE_PATH", str(data_dir / "estoque_antecipe.csv"))),
         validadores_path=Path(os.getenv("VALIDADORES_PATH", str(data_dir / "validadores_antecipe.json"))),
         cadastro_path=Path(os.getenv("SITUACAO_CADASTRAL_PATH", str(data_dir / "situacao_cadastral.json"))),
+        historico_path=Path(os.getenv("HISTORICO_DB_PATH", str(data_dir / "historico.db"))),
         data_base_padrao=parse_data_br(data_base_env) if data_base_env else None,
         max_upload_bytes=int(os.getenv("MAX_UPLOAD_MB", "50")) * 1024 * 1024,
         max_linhas_lote=int(os.getenv("MAX_LINHAS_LOTE", "10000")),
         cache_idempotencia=int(os.getenv("CACHE_IDEMPOTENCIA", "64")),
+        cache_max_notas=int(os.getenv("CACHE_MAX_NOTAS", "5000")),
         receita_api_url=os.getenv("RECEITA_API_URL", "").strip() or None,
         receita_timeout_s=float(os.getenv("RECEITA_TIMEOUT_S", "2")),
         admin_api_key=os.getenv("ADMIN_API_KEY", "").strip() or None,
@@ -77,21 +89,25 @@ def carregar_settings() -> Settings:
 
 
 class CacheIdempotencia:
-    """LRU de respostas por (hash do arquivo, parâmetros, versão das regras)."""
+    """LRU de respostas JÁ SERIALIZADAS por (hash do arquivo, parâmetros, versão das regras).
+
+    Valor = (bytes do JSON, números do lote para o histórico). Guardar bytes, e não o objeto,
+    ocupa ~6x menos memória e devolve a repetição sem reprocessar.
+    """
 
     def __init__(self, capacidade: int):
         self._capacidade = capacidade
-        self._dados: OrderedDict[tuple, BatchValidationResponse] = OrderedDict()
+        self._dados: OrderedDict[tuple, Any] = OrderedDict()
         self._lock = threading.Lock()
 
-    def obter(self, chave: tuple) -> BatchValidationResponse | None:
+    def obter(self, chave: tuple) -> Any:
         with self._lock:
             valor = self._dados.get(chave)
             if valor is not None:
                 self._dados.move_to_end(chave)
             return valor
 
-    def guardar(self, chave: tuple, valor: BatchValidationResponse) -> None:
+    def guardar(self, chave: tuple, valor: Any) -> None:
         if self._capacidade <= 0:
             return
         with self._lock:
@@ -126,6 +142,7 @@ async def lifespan(app: FastAPI):
         max_linhas_lote=settings.max_linhas_lote,
     )
     app.state.cache = CacheIdempotencia(settings.cache_idempotencia)
+    app.state.historico = Historico(settings.historico_path)
     if not settings.admin_api_key:
         logger.warning("ADMIN_API_KEY não definida: PUT /validators fica bloqueado")
     logger.info("situacao_cadastral fonte=%s", settings.receita_api_url or settings.cadastro_path)
@@ -233,6 +250,14 @@ def _engine(request: Request) -> RuleEngine:
     return request.app.state.engine
 
 
+def _registrar_historico(request: Request, metodo: str, **campos: Any) -> None:
+    """Histórico é auditoria: se o SQLite falhar, a validação segue e o erro vai para o log."""
+    try:
+        getattr(request.app.state.historico, metodo)(request_id=request.state.request_id, **campos)
+    except Exception:
+        logger.exception("request_id=%s falha ao gravar histórico (%s)", request.state.request_id, metodo)
+
+
 def _parse_data_base(valor: str | None) -> date | None:
     if valor is None or not valor.strip():
         return None
@@ -319,7 +344,16 @@ def atualizar_validadores(
     if not x_api_key or not hmac.compare_digest(x_api_key.encode(), chave.encode()):
         raise ErroEntrada("NAO_AUTORIZADO", "API key ausente ou inválida (header X-API-Key).", 401)
     try:
-        return _engine(request).atualizar_config(config)
+        engine = _engine(request)
+        aplicada = engine.atualizar_config(config)
+        _registrar_historico(
+            request,
+            "registrar_mudanca_regras",
+            versao_config=engine.versao_config,
+            regras_ativas=engine.regras_ativas_count(),
+            config=aplicada.para_json(),
+        )
+        return aplicada
     except OSError:
         logger.exception("falha ao persistir validadores")
         raise ErroEntrada(
@@ -330,14 +364,13 @@ def atualizar_validadores(
 @router.post("/batches/validate", response_model=BatchValidationResponse)
 def validar_lote(
     request: Request,
-    response: Response,
     file: UploadFile = File(..., description="CSV do lote (;, decimal com vírgula, datas dd/mm/aaaa)"),
     data_base: str | None = Form(None, description="dd/mm/aaaa; padrão = data-base detectada no estoque"),
     taxa_mensal: str | None = Form(None, description="decimal, ex.: 0.025 = 2,5% a.m."),
     otimizar_lote: str | None = Form(None, description="true (padrão) ou false"),
     validadores_override: str | None = Form(None, description="JSON de validadores para simulação what-if (não persiste)"),
     modo: str | None = Form(None, description="lote (padrão: notas novas contra o estoque) ou carteira (regras do gabarito oficial)"),
-) -> BatchValidationResponse:
+) -> Response:
     settings: Settings = request.app.state.settings
     engine = _engine(request)
 
@@ -367,14 +400,36 @@ def validar_lote(
         modo_validacao,
     )
     cache: CacheIdempotencia = request.app.state.cache
+    chave_hash = hashlib.sha256(repr(chave).encode()).hexdigest()
     em_cache = cache.obter(chave)
     if em_cache is not None:
-        response.headers["X-Idempotent-Replay"] = "true"
-        return em_cache
+        corpo, numeros = em_cache
+        _registrar_historico(request, "registrar_lote", chave_idempotencia=chave_hash, replay=True, **numeros)
+        return Response(corpo, media_type="application/json", headers={"X-Idempotent-Replay": "true"})
 
     resultado = engine.validar_lote(conteudo, data, taxa, otimizar, override, modo_validacao)
-    cache.guardar(chave, resultado)
-    response.headers["X-Idempotent-Replay"] = "false"
+    # JSON gerado direto pelo Pydantic (Rust): o FastAPI não revalida nem reconverte os 100k itens
+    corpo = resultado.model_dump_json().encode()
+    meta, resumo = resultado.meta, resultado.resumo
+    numeros = {
+        "batch_hash": meta.batch_hash_idempotencia,
+        "modo": modo_validacao,
+        "data_base": meta.data_base_utilizada,
+        "taxa_mensal": meta.taxa_mensal_aplicada,
+        "otimizar_lote": otimizar,
+        "versao_config": engine.versao_config,
+        "what_if": override is not None,
+        "total_notas": resumo.total_notas,
+        "qtd_aprovadas": resumo.qtd_aprovadas,
+        "qtd_recusadas": resumo.qtd_recusadas,
+        "qtd_alertas_fraude": resumo.qtd_alertas_fraude,
+        "valor_bruto_total": resumo.valor_bruto_total,
+        "valor_liquido_receber": resumo.valor_liquido_receber,
+        "tempo_processamento_ms": meta.tempo_processamento_ms,
+    }
+    _registrar_historico(request, "registrar_lote", chave_idempotencia=chave_hash, replay=False, **numeros)
+    if resultado.resumo.total_notas <= settings.cache_max_notas:  # carteira de 100k não fica presa na memória
+        cache.guardar(chave, (corpo, numeros))
     logger.info(
         "request_id=%s lote=%s notas=%s aprovadas=%s ganho_otimizador=%.2f tempo_ms=%s",
         request.state.request_id,
@@ -384,14 +439,14 @@ def validar_lote(
         resultado.meta.ganho_otimizador_reais,
         resultado.meta.tempo_processamento_ms,
     )
-    return resultado
+    return Response(corpo, media_type="application/json", headers={"X-Idempotent-Replay": "false"})
 
 
-@router.post("/portfolio/validate")
+@router.post("/portfolio/validate", response_model=list[dict[str, Any]])
 def validar_carteira(
     request: Request,
     file: UploadFile = File(..., description="CSV de estoque/carteira (mesmo layout do estoque_antecipe.csv)"),
-) -> list[dict[str, Any]]:
+) -> Response:
     """Julga cada linha da carteira contra as regras do fundo; saída no formato do resultado esperado oficial."""
     settings: Settings = request.app.state.settings
     conteudo = file.file.read(settings.max_upload_bytes + 1)
@@ -401,7 +456,30 @@ def validar_carteira(
         )
     if not conteudo.strip():
         raise ErroArquivoLote("O arquivo está vazio.")
-    return _engine(request).validar_carteira(conteudo)
+    resultado = _engine(request).validar_carteira(conteudo)
+    return Response(json.dumps(resultado, ensure_ascii=False).encode(), media_type="application/json")
+
+
+@router.get("/historico/lotes", response_model=PaginaHistoricoLotes)
+def historico_lotes(
+    request: Request,
+    limite: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> PaginaHistoricoLotes:
+    """Lotes validados, do mais recente para o mais antigo (inclui repetições servidas pelo cache)."""
+    itens, total = request.app.state.historico.listar_lotes(limite, offset)
+    return PaginaHistoricoLotes(total=total, limite=limite, offset=offset, itens=itens)
+
+
+@router.get("/historico/regras", response_model=PaginaMudancasRegras)
+def historico_regras(
+    request: Request,
+    limite: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> PaginaMudancasRegras:
+    """Cada PUT /validators aceito, com a versão e o JSON completo das regras aplicadas."""
+    itens, total = request.app.state.historico.listar_mudancas_regras(limite, offset)
+    return PaginaMudancasRegras(total=total, limite=limite, offset=offset, itens=itens)
 
 
 app.include_router(router)
