@@ -28,6 +28,8 @@ interface TabelaRecebiveisProps {
   onLimparMotivoFiltro: () => void;
 }
 
+const LIMITE_LINHAS = 300;
+
 export function TabelaRecebiveis({
   itens,
   motivoFiltroAtivo,
@@ -83,6 +85,8 @@ export function TabelaRecebiveis({
       return true;
     });
   }, [itens, abaAtiva, busca, motivoFiltroAtivo]);
+  // shortcut: desenha só as primeiras linhas (a busca cobre todas); virtualizar se precisar rolar 100 mil
+  const visiveis = itensFiltrados.slice(0, LIMITE_LINHAS);
 
   const toggleLinha = (linhaCsv: number) => {
     setLinhasExpandidas((prev) => {
@@ -227,7 +231,9 @@ export function TabelaRecebiveis({
           )}
 
           <div className="text-xs text-slate-500 self-center">
-            Exibindo <strong>{itensFiltrados.length}</strong> de {itens.length} títulos
+            {itensFiltrados.length > LIMITE_LINHAS
+              ? <>Mostrando <strong>{LIMITE_LINHAS}</strong> de {itensFiltrados.length.toLocaleString("pt-BR")} títulos · use a busca</>
+              : <>Exibindo <strong>{itensFiltrados.length}</strong> de {itens.length.toLocaleString("pt-BR")} títulos</>}
           </div>
         </div>
       </div>
@@ -256,7 +262,7 @@ export function TabelaRecebiveis({
                 </td>
               </tr>
             ) : (
-              itensFiltrados.map((item) => {
+              visiveis.map((item) => {
                 const isExpandida = linhasExpandidas.has(item.linha_csv);
                 const isAprovada = item.status === "APROVADA";
                 const isFraude = item.severidade === "FRAUDE";
@@ -392,7 +398,7 @@ export function TabelaRecebiveis({
       </div>
 
       {/* Painéis Expandidos com Explicação Humana e Acionável */}
-      {itensFiltrados.map((item) => {
+      {visiveis.map((item) => {
         if (!linhasExpandidas.has(item.linha_csv)) return null;
 
         const isAprovada = item.status === "APROVADA";

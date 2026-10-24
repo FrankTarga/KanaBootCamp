@@ -141,17 +141,62 @@ export interface MetaLote {
   qtd_notas_salvas_otimizador: number;
 }
 
+// Painel de recusas (contrato: docs/analise-recusas.md). Mostrar como vem: os percentuais já fecham 100%.
+export interface GrupoUmProblema {
+  codigo: string;
+  titulo_amigavel: string;
+  corrigivel: boolean;
+  qtd: number;
+  valor: number;
+  pct_das_recusadas: number;
+  liquido_liberado: number | null; // null = sem estimativa (ex.: nota vencida)
+}
+
+export interface CombinacaoProblemas {
+  codigos: string[];
+  titulos: string[];
+  qtd: number;
+  valor: number;
+  pct_do_grupo: number;
+}
+
+export interface SubgrupoProblemas {
+  qtd_problemas: number;
+  qtd: number;
+  valor: number;
+  pct_do_grupo: number;
+  combinacoes: CombinacaoProblemas[];
+}
+
+export interface AnaliseRecusas {
+  qtd_notas: number;
+  qtd_recusadas: number;
+  pct_recusadas: number;
+  valor_recusado: number;
+  qtd_com_mais_de_um_erro: number;
+  pct_com_mais_de_um_erro: number;
+  grupos: {
+    um_problema: GrupoUmProblema[];
+    mais_de_um_problema: { qtd: number; valor: number; pct_das_recusadas: number; subgrupos: SubgrupoProblemas[] };
+  };
+}
+
 export interface BatchValidationResponse {
   meta: MetaLote;
   resumo: ResumoLote;
   itens: ItemLote[];
+  analise_recusas?: AnaliseRecusas; // a API sempre manda; o lote de demonstração local não tem
 }
+
+/** lote: notas novas contra o estoque · carteira: julga o próprio estoque (regras do gabarito) */
+export type ModoValidacao = "lote" | "carteira";
 
 export interface OpcoesValidacao {
   dataBase?: string; // dd/mm/aaaa
   taxaMensal?: number; // fração: 0.02 = 2% a.m.
   otimizarLote?: boolean; // padrão true
   validadoresOverride?: ValidadoresConfig; // what-if do gestor: simula sem salvar
+  modo?: ModoValidacao; // padrão: lote
 }
 
 // Formato único de erro da API

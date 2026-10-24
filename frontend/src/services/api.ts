@@ -223,6 +223,7 @@ export async function validarLote(arquivo: File | null, opcoes: OpcoesValidacao 
   if (opcoes.taxaMensal !== undefined) form.append("taxa_mensal", String(opcoes.taxaMensal));
   if (opcoes.otimizarLote !== undefined) form.append("otimizar_lote", String(opcoes.otimizarLote));
   if (opcoes.validadoresOverride) form.append("validadores_override", JSON.stringify(opcoes.validadoresOverride));
+  if (opcoes.modo && opcoes.modo !== "lote") form.append("modo", opcoes.modo);
 
   try {
     const { dados, resposta } = await requisitar<BatchValidationResponse>("/batches/validate", {

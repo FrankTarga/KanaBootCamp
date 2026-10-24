@@ -1,15 +1,8 @@
-import type { ReactNode } from "react";
-import { ArrowRight } from "lucide-react";
-import type { ContagemMotivo, ItemLote, ResumoLote } from "../types/api";
-import { formatarMoedaCompacta } from "../utils/formatters";
+import type { ContagemMotivo, ItemLote, ResumoLote } from "../../types/api";
+import { formatarMoedaCompacta } from "../../utils/formatters";
 
-interface GraficosLoteProps {
-  resumo: ResumoLote;
-  itens: ItemLote[];
-  onVerMotivo: (codigo: string | null) => void;
-}
 
-const pct = (parte: number, todo: number) => (todo > 0 ? (parte / todo) * 100 : 0);
+export const pct = (parte: number, todo: number) => (todo > 0 ? (parte / todo) * 100 : 0);
 const fPct = (v: number) => `${v.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 
 const ABREVIACAO: Record<string, string> = {
@@ -19,33 +12,14 @@ const ABREVIACAO: Record<string, string> = {
   DOCUMENTO_BLOQUEADO: "BLOQ", FRAUDE_OUTRO_FUNDO: "FRAUDE", DUPLICIDADE_FUNDO: "REPET", DUPLICIDADE_LOTE: "REPET",
   FORMATO_INVALIDO: "FORMATO",
 };
-const GRAVE = new Set(["FRAUDE_OUTRO_FUNDO", "DUPLICIDADE_FUNDO", "DUPLICIDADE_LOTE"]);
+export const GRAVE = new Set(["FRAUDE_OUTRO_FUNDO", "DUPLICIDADE_FUNDO", "DUPLICIDADE_LOTE"]);
 
 const FAIXAS = [
   { rotulo: "até 15", max: 15 }, { rotulo: "16–30", max: 30 }, { rotulo: "31–60", max: 60 },
   { rotulo: "61–90", max: 90 }, { rotulo: "91–180", max: 180 }, { rotulo: "+180", max: Infinity },
 ];
 
-function Coluna({ titulo, subtitulo, frase, botao, onBotao, children }: {
-  titulo: string; subtitulo: string; frase: ReactNode; botao: string; onBotao: () => void; children: ReactNode;
-}) {
-  return (
-    <article className="flex min-w-0 flex-col gap-6 rounded-3xl border border-floresta-linha bg-floresta-painel/60 p-6 sm:p-8">
-      <header>
-        <h3 className="font-display text-3xl font-light uppercase tracking-[0.03em] text-creme">{titulo}</h3>
-        <p className="mt-1 text-base text-creme/80">{subtitulo}</p>
-      </header>
-      <p className="text-sm text-creme/90">{frase}</p>
-      <div className="flex-1 rounded-2xl bg-creme-claro p-5 text-slate-900 shadow-elevated">{children}</div>
-      <button type="button" onClick={onBotao}
-        className="btn w-full justify-center bg-emerald-700 py-3 text-creme hover:bg-emerald-600 focus-visible:ring-creme/30">
-        {botao} <ArrowRight className="h-4 w-4" />
-      </button>
-    </article>
-  );
-}
-
-function BrutoAoLiquido({ resumo }: { resumo: ResumoLote }) {
+export function BrutoAoLiquido({ resumo }: { resumo: ResumoLote }) {
   const B = resumo.valor_bruto_total;
   const linhas = [
     { sigla: "ENV", nome: "Valor enviado", valor: B, de: 0, ate: 100, cor: "bg-slate-400" },
@@ -76,7 +50,7 @@ function BrutoAoLiquido({ resumo }: { resumo: ResumoLote }) {
   );
 }
 
-function Motivos({ motivos, onVerMotivo }: { motivos: ContagemMotivo[]; onVerMotivo: (c: string) => void }) {
+export function Motivos({ motivos, onVerMotivo }: { motivos: ContagemMotivo[]; onVerMotivo: (c: string) => void }) {
   const lista = [...motivos].sort((a, b) => b.valor_impactado - a.valor_impactado).slice(0, 5);
   const maior = lista[0]?.valor_impactado ?? 0;
   if (!lista.length) return <p className="py-10 text-center text-sm text-slate-500">Nenhuma nota ficou de fora neste lote.</p>;
@@ -109,7 +83,7 @@ function Motivos({ motivos, onVerMotivo }: { motivos: ContagemMotivo[]; onVerMot
   );
 }
 
-function Vencimentos({ itens, prazoMedio }: { itens: ItemLote[]; prazoMedio: number }) {
+export function Vencimentos({ itens, prazoMedio }: { itens: ItemLote[]; prazoMedio: number }) {
   const aprovadas = itens.filter((i) => i.status === "APROVADA");
   const somas = FAIXAS.map((f, i) => aprovadas
     .filter((n) => n.prazo_dias <= f.max && n.prazo_dias > (i ? FAIXAS[i - 1].max : -Infinity))
@@ -142,37 +116,5 @@ function Vencimentos({ itens, prazoMedio }: { itens: ItemLote[]; prazoMedio: num
         <p className="py-10 text-center text-sm text-slate-500">Nenhuma nota aprovada neste lote.</p>
       )}
     </div>
-  );
-}
-
-export function GraficosLote({ resumo, itens, onVerMotivo }: GraficosLoteProps) {
-  const virouDinheiro = pct(resumo.valor_liquido_receber, resumo.valor_bruto_total);
-  const principal = [...resumo.contagem_por_motivo].sort((a, b) => b.valor_impactado - a.valor_impactado)[0];
-  return (
-    <section id="graficos" className="relative scroll-mt-24 overflow-hidden bg-floresta px-5 py-24 text-creme sm:py-32">
-      <div className="mx-auto max-w-6xl">
-        <div className="text-center">
-          <p className="eyebrow text-creme/60">Raio-X do lote</p>
-          <h2 className="titulo-secao mt-4">Para onde vai o seu dinheiro</h2>
-        </div>
-        <div className="mt-16 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Coluna titulo="Liquidez" subtitulo="Quanto do lote vira dinheiro hoje"
-            frase={<><strong className="tabular-nums">{fPct(virouDinheiro)}</strong> do valor enviado cai na sua conta hoje.</>}
-            botao="Ver as notas do lote" onBotao={() => onVerMotivo(null)}>
-            <BrutoAoLiquido resumo={resumo} />
-          </Coluna>
-          <Coluna titulo="Recusas" subtitulo="Por que algumas notas ficaram de fora"
-            frase={principal ? <>O problema com mais dinheiro envolvido é <strong>{principal.titulo_amigavel.toLowerCase()}</strong>.</> : "Todas as notas passaram nas regras do fundo."}
-            botao="Ver notas recusadas" onBotao={() => onVerMotivo(principal?.codigo ?? null)}>
-            <Motivos motivos={resumo.contagem_por_motivo} onVerMotivo={onVerMotivo} />
-          </Coluna>
-          <Coluna titulo="Vencimentos" subtitulo="Quando as notas aprovadas vencem"
-            frase="Notas mais curtas pagam menos custo: cada dia a menos aumenta o valor que você recebe."
-            botao="Ver todas as notas" onBotao={() => onVerMotivo(null)}>
-            <Vencimentos itens={itens} prazoMedio={resumo.prazo_medio_ponderado_dias} />
-          </Coluna>
-        </div>
-      </div>
-    </section>
   );
 }
