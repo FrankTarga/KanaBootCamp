@@ -253,12 +253,15 @@ export async function validarLote(arquivo: File | null, opcoes: OpcoesValidacao 
       replayIdempotente: resposta.headers.get("X-Idempotent-Replay") === "true",
     };
   } catch (err) {
-    console.warn("Backend offline ou erro de conexão no upload. Acionando motor de contingência demo:", err);
-    return {
-      dados: simularLoteLocal(opcoes),
-      fonte: "demo",
-      replayIdempotente: false,
-    };
+    if (err instanceof ApiError && err.status === 0) {
+      console.warn("Backend offline ou erro de conexão no upload. Acionando motor de contingência demo:", err);
+      return {
+        dados: simularLoteLocal(opcoes),
+        fonte: "demo",
+        replayIdempotente: false,
+      };
+    }
+    throw err;
   }
 }
 
