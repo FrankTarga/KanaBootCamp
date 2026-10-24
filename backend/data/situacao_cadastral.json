@@ -1,7 +1,7 @@
 {
-  "_comentario": "Situação cadastral na Receita Federal por CNPJ do sacado. CNPJ ausente = ATIVA. Recarregado automaticamente quando o arquivo muda.",
+  "_comentario": "Situação cadastral por CNPJ do sacado. Com RECEITA_API_URL, estes valores sobrescrevem a base do mock-receita; sem RECEITA_API_URL, este arquivo é a fonte e CNPJ ausente é RECUSADO (fail-closed). Recarregado automaticamente quando o arquivo muda.",
   "situacoes": {
-    "46.778.910/0001-09": "BAIXADA",
-    "99.011.418/0001-61": "INAPTA"
+    "03.601.302/0001-03": "BAIXADA",
+    "06.497.588/0001-17": "INAPTA"
   }
 }

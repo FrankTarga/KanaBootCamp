@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from .quant_analytics import formatar_data_br, parse_data_br, parse_valor_br, proximo_dia_util
+from .br_utils import formatar_data_br, parse_data_br, parse_valor_br, proximo_dia_util
 
 DATA_BASE_FALLBACK = date(2026, 10, 22)
 
@@ -185,6 +185,8 @@ def carregar_estoque(
         try:
             valor = _valor_rapido(linha[i_valor].strip())
             venc = linha[i_venc].strip()
+            # shortcut: dd/mm/aaaa só é conferido no formato (31/02 passa), porque o estoque vem do sistema do fundo
+            # (0 datas ruins nas 100k linhas); validar o calendário aqui se o estoque passar a vir de terceiros
             if not (len(venc) == 10 and venc[2] == "/" and venc[5] == "/"):
                 venc = normalizar_data_texto(venc)
         except ValueError:

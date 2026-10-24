@@ -35,6 +35,7 @@ class PrecificacaoConfig(BaseModel):
     metodo: str = "DESCONTO_SIMPLES"
     taxa_mensal_percentual: float | None = None
     base_dias: int = 30
+    prazo_minimo_cobranca_dias: int = 0  # deságio cobra ao menos N dias, mesmo para prazo menor
 
 
 class ValidadoresConfig(BaseModel):
@@ -60,6 +61,7 @@ class HealthResponse(BaseModel):
     patrimonio_antecipe_fidc: float
     fundos_monitorados: int
     regras_ativas_count: int
+    taxa_mensal_padrao: float  # decimal (0.02 = 2% a.m.); fonte única: precificacao do JSON
     tempo_carga_estoque_ms: float
     versao_config: int
 

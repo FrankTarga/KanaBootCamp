@@ -39,6 +39,8 @@ SACADO_GRANDE = gerar_cnpj("445556660001")  # 910.000 de exposição
 SACADO_LIVRE = gerar_cnpj("778889990001")  # sem exposição
 SACADO_OTIMIZADOR = gerar_cnpj("998887770001")  # sem exposição
 SACADO_BAIXADO = gerar_cnpj("665554440001")
+SACADO_SEM_CADASTRO = gerar_cnpj("123123120001")  # CNPJ válido que a Receita não conhece
+SACADOS_ATIVOS = (SACADO_CONCENTRADO, SACADO_MESMA_RAIZ, SACADO_GRANDE, SACADO_LIVRE, SACADO_OTIMIZADOR)
 
 # Títulos de estoque reutilizados pelos testes de duplicidade/fraude
 TITULO_ANTECIPE = (SACADO_GRANDE, "000777", "1500,00", "10/11/2026")
@@ -67,7 +69,7 @@ def pasta_dados(tmp_path: Path) -> Path:
     (tmp_path / "estoque_antecipe.csv").write_bytes(estoque)
     shutil.copy(BACKEND_DIR / "data" / "validadores_antecipe.json", tmp_path / "validadores_antecipe.json")
     (tmp_path / "situacao_cadastral.json").write_text(
-        json.dumps({"situacoes": {SACADO_BAIXADO: "BAIXADA"}}), encoding="utf-8"
+        json.dumps({"situacoes": {**{d: "ATIVA" for d in SACADOS_ATIVOS}, SACADO_BAIXADO: "BAIXADA"}}), encoding="utf-8"
     )
     return tmp_path
 

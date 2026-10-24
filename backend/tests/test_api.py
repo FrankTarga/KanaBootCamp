@@ -25,6 +25,9 @@ CHAVES_ITEM = {
 }
 CHAVES_ERRO = {"codigo", "titulo_amigavel", "mensagem_empresa", "acao_recomendada"}
 
+CHAVE = "chave-teste"
+AUTH = {"X-API-Key": CHAVE}
+
 LOTE = montar_csv(
     linha_csv(SACADO_LIVRE, "A1", "10.000,00", "21/11/2026"),
     linha_csv(SACADO_LIVRE, "A2", "50,00", "21/11/2026"),
@@ -36,6 +39,8 @@ LOTE = montar_csv(
 def client(pasta_dados, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(pasta_dados))
     monkeypatch.delenv("DATA_BASE_PADRAO", raising=False)
+    monkeypatch.delenv("RECEITA_API_URL", raising=False)
+    monkeypatch.setenv("ADMIN_API_KEY", CHAVE)
     with TestClient(app) as c:
         yield c
 
@@ -55,6 +60,7 @@ def test_health(client):
     assert corpo["patrimonio_antecipe_fidc"] == 1_000_000.0
     assert corpo["fundos_monitorados"] == 2
     assert corpo["regras_ativas_count"] == 7
+    assert corpo["taxa_mensal_padrao"] == 0.02
     assert r.headers["X-Request-ID"]
 
 
@@ -122,7 +128,7 @@ def test_put_validators_zero_deploy(client, pasta_dados):
         if v["codigo"] == "VALOR_MINIMO":
             v["ativo"] = False
 
-    r = client.put("/api/v1/validators", json=config)
+    r = client.put("/api/v1/validators", headers=AUTH, json=config)
     assert r.status_code == 200 and r.json() == config
     em_disco = json.loads((pasta_dados / "validadores_antecipe.json").read_text(encoding="utf-8"))
     assert em_disco == config
@@ -138,11 +144,11 @@ def test_put_validators_invalido_nao_altera_nada(client, pasta_dados):
     antes = (pasta_dados / "validadores_antecipe.json").read_text(encoding="utf-8")
     config = client.get("/api/v1/validators").json()
     config["validadores"].append({"codigo": "REGRA_INVENTADA", "ativo": True, "parametros": {}})
-    r = client.put("/api/v1/validators", json=config)
+    r = client.put("/api/v1/validators", headers=AUTH, json=config)
     assert r.status_code == 422
     erro = r.json()["error"]
     assert erro["code"] == "CONFIGURACAO_INVALIDA" and any("REGRA_INVENTADA" in d for d in erro["details"])
-    assert client.put("/api/v1/validators", json={"validadores": "x"}).json()["error"]["code"] == "REQUISICAO_INVALIDA"
+    assert client.put("/api/v1/validators", headers=AUTH, json={"validadores": "x"}).json()["error"]["code"] == "REQUISICAO_INVALIDA"
     assert (pasta_dados / "validadores_antecipe.json").read_text(encoding="utf-8") == antes
     assert client.get("/api/v1/health").json()["versao_config"] == 1
 
@@ -157,3 +163,105 @@ def test_what_if_override_nao_persiste(client, pasta_dados):
     assert simulado["resumo"]["qtd_aprovadas"] == 2
     assert enviar(client).json()["resumo"]["qtd_aprovadas"] == 1
     assert (pasta_dados / "validadores_antecipe.json").read_text(encoding="utf-8") == antes
+
+
+def test_trocar_fundo_e_recusado_no_put_e_no_what_if(client):
+    config = client.get("/api/v1/validators").json()
+    config["fundo"]["nome"] = "OUTRO FIDC"
+    r = client.put("/api/v1/validators", headers=AUTH, json=config)
+    assert r.status_code == 422 and any("reiniciar" in d for d in r.json()["error"]["details"])
+    r = enviar(client, validadores_override=json.dumps(config))
+    assert r.status_code == 422 and r.json()["error"]["code"] == "OVERRIDE_INVALIDO"
+
+
+def test_health_reflete_taxa_do_put(client):
+    config = client.get("/api/v1/validators").json()
+    config["precificacao"]["taxa_mensal_percentual"] = 1.5
+    assert client.put("/api/v1/validators", headers=AUTH, json=config).status_code == 200
+    assert client.get("/api/v1/health").json()["taxa_mensal_padrao"] == 0.015
+    assert enviar(client).json()["meta"]["taxa_mensal_aplicada"] == 0.015
+
+
+def test_put_exige_api_key(client):
+    config = client.get("/api/v1/validators").json()
+    assert client.put("/api/v1/validators", json=config).json()["error"]["code"] == "NAO_AUTORIZADO"
+    r = client.put("/api/v1/validators", headers={"X-API-Key": "errada"}, json=config)
+    assert r.status_code == 401
+    assert client.get("/api/v1/health").json()["versao_config"] == 1
+
+
+def test_put_bloqueado_sem_admin_api_key(pasta_dados, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(pasta_dados))
+    monkeypatch.delenv("ADMIN_API_KEY", raising=False)
+    with TestClient(app) as c:
+        r = c.put("/api/v1/validators", headers=AUTH, json=c.get("/api/v1/validators").json())
+    assert r.status_code == 403 and r.json()["error"]["code"] == "PUT_DESABILITADO"
+
+
+# ---------------------------------------------------------------------------
+# Erros padronizados, limites e cache
+# ---------------------------------------------------------------------------
+
+def test_rota_inexistente_e_raiz(client):
+    r = client.get("/api/v1/nao-existe")
+    assert r.status_code == 404 and r.json()["error"]["code"] == "NAO_ENCONTRADO"
+    assert client.get("/").json()["docs"] == "/docs"
+
+
+def test_erro_inesperado_nao_vaza_stack_trace(pasta_dados, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(pasta_dados))
+    with TestClient(app, raise_server_exceptions=False) as c:
+        def explode(*args, **kwargs):
+            raise RuntimeError("segredo interno")
+        monkeypatch.setattr(c.app.state.engine, "validar_lote", explode)
+        r = enviar(c)
+    assert r.status_code == 500
+    assert r.json()["error"]["code"] == "ERRO_INTERNO" and "segredo" not in r.text
+    assert r.headers["X-Request-ID"] in r.json()["error"]["message"]
+
+
+def test_arquivo_vazio_e_grande_demais(pasta_dados, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(pasta_dados))
+    monkeypatch.setenv("MAX_UPLOAD_MB", "0")
+    with TestClient(app) as c:
+        assert enviar(c).status_code == 413
+    monkeypatch.setenv("MAX_UPLOAD_MB", "20")
+    with TestClient(app) as c:
+        r = enviar(c, conteudo=b"   \n")
+    assert r.status_code == 422 and r.json()["error"]["code"] == "ARQUIVO_INVALIDO"
+
+
+@pytest.mark.parametrize(("campos", "codigo"), [
+    ({"taxa_mensal": "abc"}, "TAXA_INVALIDA"),
+    ({"validadores_override": '{"validadores": "x"}'}, "OVERRIDE_INVALIDO"),
+])
+def test_mais_parametros_invalidos(client, campos, codigo):
+    assert enviar(client, **campos).json()["error"]["code"] == codigo
+
+
+def test_otimizar_aceita_sim(client):
+    assert enviar(client, otimizar_lote="sim").json()["meta"]["otimizador_ativo"] is True
+
+
+def test_put_que_nao_consegue_gravar_nao_muda_nada(client, monkeypatch):
+    from app import rule_engine
+
+    def falha(*args):
+        raise OSError("disco cheio")
+
+    monkeypatch.setattr(rule_engine, "salvar_config", falha)
+    r = client.put("/api/v1/validators", headers=AUTH, json=client.get("/api/v1/validators").json())
+    assert r.status_code == 500 and r.json()["error"]["code"] == "FALHA_PERSISTENCIA"
+    assert client.get("/api/v1/health").json()["versao_config"] == 1
+
+
+def test_cache_idempotencia_descarta_o_mais_antigo():
+    from app.main import CacheIdempotencia
+
+    cache = CacheIdempotencia(1)
+    cache.guardar("a", 1)
+    cache.guardar("b", 2)
+    assert cache.obter("a") is None and cache.obter("b") == 2
+    desligado = CacheIdempotencia(0)
+    desligado.guardar("a", 1)
+    assert desligado.obter("a") is None

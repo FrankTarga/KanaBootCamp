@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -16,7 +17,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, File, Form, Request, Response, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, Header, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -24,7 +25,7 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api_schemas import BatchValidationResponse, ErroApi, HealthResponse, ValidadoresConfig
-from .quant_analytics import formatar_data_br, parse_data_br
+from .br_utils import formatar_data_br, parse_data_br
 from .rule_engine import (
     CadastroSituacao,
     ErroArquivoLote,
@@ -51,7 +52,11 @@ class Settings:
     cadastro_path: Path
     data_base_padrao: date | None
     max_upload_bytes: int
+    max_linhas_lote: int
     cache_idempotencia: int
+    receita_api_url: str | None
+    receita_timeout_s: float
+    admin_api_key: str | None
 
 
 def carregar_settings() -> Settings:
@@ -62,8 +67,12 @@ def carregar_settings() -> Settings:
         validadores_path=Path(os.getenv("VALIDADORES_PATH", str(data_dir / "validadores_antecipe.json"))),
         cadastro_path=Path(os.getenv("SITUACAO_CADASTRAL_PATH", str(data_dir / "situacao_cadastral.json"))),
         data_base_padrao=parse_data_br(data_base_env) if data_base_env else None,
-        max_upload_bytes=int(os.getenv("MAX_UPLOAD_MB", "20")) * 1024 * 1024,
+        max_upload_bytes=int(os.getenv("MAX_UPLOAD_MB", "50")) * 1024 * 1024,
+        max_linhas_lote=int(os.getenv("MAX_LINHAS_LOTE", "10000")),
         cache_idempotencia=int(os.getenv("CACHE_IDEMPOTENCIA", "64")),
+        receita_api_url=os.getenv("RECEITA_API_URL", "").strip() or None,
+        receita_timeout_s=float(os.getenv("RECEITA_TIMEOUT_S", "2")),
+        admin_api_key=os.getenv("ADMIN_API_KEY", "").strip() or None,
     )
 
 
@@ -110,9 +119,16 @@ async def lifespan(app: FastAPI):
     )
     app.state.settings = settings
     app.state.engine = RuleEngine(
-        index, config, settings.validadores_path, CadastroSituacao(settings.cadastro_path)
+        index,
+        config,
+        settings.validadores_path,
+        CadastroSituacao(settings.cadastro_path, settings.receita_api_url, settings.receita_timeout_s),
+        max_linhas_lote=settings.max_linhas_lote,
     )
     app.state.cache = CacheIdempotencia(settings.cache_idempotencia)
+    if not settings.admin_api_key:
+        logger.warning("ADMIN_API_KEY não definida: PUT /validators fica bloqueado")
+    logger.info("situacao_cadastral fonte=%s", settings.receita_api_url or settings.cadastro_path)
     logger.info(
         "estoque carregado linhas=%s antecipe=%s fundos=%s patrimonio=%.2f data_base=%s tempo_ms=%s",
         index.total_linhas,
@@ -198,14 +214,16 @@ async def _erro_http(request: Request, exc: StarletteHTTPException):
 async def _erro_interno(request: Request, exc: Exception):
     request_id = getattr(request.state, "request_id", "-")
     logger.exception("request_id=%s erro inesperado", request_id)
-    return _resposta_erro(500, "ERRO_INTERNO", f"Erro inesperado. Informe o código {request_id} ao suporte.")
+    resposta = _resposta_erro(500, "ERRO_INTERNO", f"Erro inesperado. Informe o código {request_id} ao suporte.")
+    resposta.headers["X-Request-ID"] = request_id  # o 500 sai fora do middleware, que não chega a pôr o header
+    return resposta
 
 
 # ---------------------------------------------------------------------------
 # Rotas /api/v1
 # ---------------------------------------------------------------------------
 
-router = APIRouter(prefix="/api/v1", responses={422: {"model": ErroApi}, 500: {"model": ErroApi}})
+router = APIRouter(prefix="/api/v1", responses={401: {"model": ErroApi}, 403: {"model": ErroApi}, 422: {"model": ErroApi}, 500: {"model": ErroApi}})
 
 _VERDADEIRO = {"true", "1", "sim", "s", "yes", "y", "on"}
 _FALSO = {"false", "0", "nao", "não", "n", "no", "off"}
@@ -249,7 +267,7 @@ def _parse_bool(valor: str | None, padrao: bool) -> bool:
     raise ErroEntrada("OTIMIZAR_LOTE_INVALIDO", f"otimizar_lote '{valor}' inválido; use true ou false.")
 
 
-def _parse_override(valor: str | None) -> tuple[ValidadoresConfig | None, str]:
+def _parse_override(valor: str | None, engine: RuleEngine) -> tuple[ValidadoresConfig | None, str]:
     if valor is None or not valor.strip():
         return None, ""
     try:
@@ -259,7 +277,7 @@ def _parse_override(valor: str | None) -> tuple[ValidadoresConfig | None, str]:
     except ValidationError as exc:
         detalhes = [{"campo": ".".join(str(p) for p in e["loc"]), "mensagem": e["msg"]} for e in exc.errors()]
         raise ErroEntrada("OVERRIDE_INVALIDO", "validadores_override fora do schema.", details=detalhes) from None
-    erros = validar_config(config)
+    erros = validar_config(config) + engine.validar_compatibilidade(config)
     if erros:
         raise ErroEntrada("OVERRIDE_INVALIDO", "validadores_override tem regras inválidas.", details=erros)
     assinatura = hashlib.sha256(json.dumps(config.para_json(), sort_keys=True).encode()).hexdigest()
@@ -278,6 +296,7 @@ def health(request: Request) -> HealthResponse:
         patrimonio_antecipe_fidc=index.patrimonio_antecipe,
         fundos_monitorados=len(index.fundos),
         regras_ativas_count=engine.regras_ativas_count(),
+        taxa_mensal_padrao=engine.taxa_configurada(engine.config),
         tempo_carga_estoque_ms=index.tempo_carga_ms,
         versao_config=engine.versao_config,
     )
@@ -289,7 +308,16 @@ def obter_validadores(request: Request) -> ValidadoresConfig:
 
 
 @router.put("/validators", response_model=ValidadoresConfig, response_model_exclude_unset=True)
-def atualizar_validadores(config: ValidadoresConfig, request: Request) -> ValidadoresConfig:
+def atualizar_validadores(
+    config: ValidadoresConfig,
+    request: Request,
+    x_api_key: str | None = Header(None, description="chave do gestor (env ADMIN_API_KEY)"),
+) -> ValidadoresConfig:
+    chave = request.app.state.settings.admin_api_key
+    if not chave:
+        raise ErroEntrada("PUT_DESABILITADO", "Alteração de regras desabilitada: configure ADMIN_API_KEY no servidor.", 403)
+    if not x_api_key or not hmac.compare_digest(x_api_key.encode(), chave.encode()):
+        raise ErroEntrada("NAO_AUTORIZADO", "API key ausente ou inválida (header X-API-Key).", 401)
     try:
         return _engine(request).atualizar_config(config)
     except OSError:
@@ -323,7 +351,7 @@ def validar_lote(
     data = _parse_data_base(data_base)
     taxa = _parse_taxa(taxa_mensal)
     otimizar = _parse_bool(otimizar_lote, True)
-    override, assinatura_override = _parse_override(validadores_override)
+    override, assinatura_override = _parse_override(validadores_override, engine)
 
     chave = (
         hashlib.sha256(conteudo).hexdigest(),
@@ -352,6 +380,23 @@ def validar_lote(
         resultado.meta.tempo_processamento_ms,
     )
     return resultado
+
+
+@router.post("/portfolio/validate")
+def validar_carteira(
+    request: Request,
+    file: UploadFile = File(..., description="CSV de estoque/carteira (mesmo layout do estoque_antecipe.csv)"),
+) -> list[dict[str, Any]]:
+    """Julga cada linha da carteira contra as regras do fundo; saída no formato do resultado esperado oficial."""
+    settings: Settings = request.app.state.settings
+    conteudo = file.file.read(settings.max_upload_bytes + 1)
+    if len(conteudo) > settings.max_upload_bytes:
+        raise ErroEntrada(
+            "ARQUIVO_GRANDE_DEMAIS", f"O arquivo passa do limite de {settings.max_upload_bytes // (1024 * 1024)} MB.", 413
+        )
+    if not conteudo.strip():
+        raise ErroArquivoLote("O arquivo está vazio.")
+    return _engine(request).validar_carteira(conteudo)
 
 
 app.include_router(router)

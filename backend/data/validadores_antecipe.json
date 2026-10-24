@@ -73,6 +73,7 @@
   "precificacao": {
     "metodo": "DESCONTO_SIMPLES",
     "taxa_mensal_percentual": 2.0,
-    "base_dias": 30
+    "base_dias": 30,
+    "prazo_minimo_cobranca_dias": 5
   }
 }

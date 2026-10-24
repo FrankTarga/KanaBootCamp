@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import csv
+from collections import defaultdict
 import hashlib
 import json
 import logging
@@ -20,6 +21,9 @@ import tempfile
 import threading
 import time
 import unicodedata
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -35,17 +39,20 @@ from .api_schemas import (
     ResumoLote,
     ValidadoresConfig,
 )
-from .quant_analytics import (
-    METODOS_PRECIFICACAO,
-    ItemOtimizacao,
-    RestricaoConcentracao,
+from .br_utils import (
     calcular_prazo_dias,
     formatar_brl,
     formatar_data_br,
     formatar_percentual,
-    gerar_ordens_candidatas,
     parse_data_br,
     parse_valor_br,
+)
+from .quant_analytics import (
+    METODOS_PRECIFICACAO,
+    ItemOtimizacao,
+    RestricaoConcentracao,
+    gerar_ordens_candidatas,
+    ordenar_lote_otimizado,
     precificar,
 )
 from .stock_index import (
@@ -68,7 +75,10 @@ SEV_FRAUDE = "FRAUDE"
 _RANK_SEVERIDADE = {SEV_OK: 0, SEV_REGRA: 1, SEV_DUPLICIDADE: 2, SEV_FRAUDE: 3}
 
 TAXA_MENSAL_PADRAO = 0.025
-SITUACAO_SE_AUSENTE = "ATIVA"
+NAO_ENCONTRADO = "NAO_ENCONTRADO"
+
+MAX_LINHAS_LOTE_PADRAO = 10_000
+LIMITE_OTIMIZACAO_COMPLETA = 3_000  # acima disso, simula só a ordem original e a ordem quant
 
 CODIGO_FORMATO = "FORMATO_INVALIDO"
 TITULO_FORMATO = "Dados da nota incompletos ou inválidos"
@@ -213,21 +223,61 @@ class ResultadoSimulacao:
 # ---------------------------------------------------------------------------
 
 class CadastroSituacao:
-    def __init__(self, caminho: Path | None):
+    """Situação cadastral do sacado na Receita Federal.
+
+    Com `url` (BrasilAPI ou mock-receita/): GET {url}/{cnpj}, em paralelo e com cache.
+    Sem `url`: arquivo JSON local {"situacoes": {cnpj: situacao}}, recarregado quando muda.
+    Fail-closed: CNPJ desconhecido vira NAO_ENCONTRADO; falha de consulta fica fora do resultado.
+    """
+
+    def __init__(self, caminho: Path | None, url: str | None = None, timeout_s: float = 2.0, ttl_s: float = 3600):
         self._caminho = Path(caminho) if caminho else None
+        self._url = url.rstrip("/") if url else None
+        self._timeout_s = timeout_s
+        self._ttl_s = ttl_s
+        self._cache: dict[str, tuple[str, float]] = {}
+        self._falhas = 0  # entra na versão: resposta com consulta falha nunca é reaproveitada pelo cache
         self._assinatura: tuple[int, int] | None = None
         self._situacoes: dict[str, str] = {}
         self._lock = threading.Lock()
         self._recarregar_se_mudou()
 
     @property
-    def versao(self) -> tuple[int, int] | None:
+    def versao(self) -> tuple[Any, ...]:
         self._recarregar_se_mudou()
-        return self._assinatura
+        # a janela do TTL também entra: depois que a situação expira, nenhuma resposta antiga é reaproveitada
+        janela = int(time.monotonic() // self._ttl_s) if self._url else None
+        return self._assinatura, self._falhas, janela
 
-    def snapshot(self) -> dict[str, str]:
-        self._recarregar_se_mudou()
-        return self._situacoes
+    def consultar(self, docs: set[str]) -> dict[str, str]:
+        """doc -> situação (ou NAO_ENCONTRADO). Doc ausente do resultado = não foi possível consultar."""
+        if self._url is None:
+            self._recarregar_se_mudou()
+            return {doc: self._situacoes.get(doc, NAO_ENCONTRADO) for doc in docs}
+        agora = time.monotonic()
+        faltando = [d for d in docs if d not in self._cache or agora - self._cache[d][1] > self._ttl_s]
+        if faltando:
+            with ThreadPoolExecutor(max_workers=min(16, len(faltando))) as pool:
+                for doc, situacao in zip(faltando, pool.map(self._consultar_api, faltando)):
+                    if situacao is None:
+                        self._falhas += 1
+                        self._cache.pop(doc, None)  # dado vencido não vale: fail-closed
+                    else:
+                        self._cache[doc] = (situacao, agora)
+        return {doc: self._cache[doc][0] for doc in docs if doc in self._cache}
+
+    def _consultar_api(self, doc: str) -> str | None:
+        try:
+            with urllib.request.urlopen(f"{self._url}/{doc}", timeout=self._timeout_s) as resposta:
+                dados = json.loads(resposta.read().decode("utf-8"))
+            return str(dados.get("descricao_situacao_cadastral") or NAO_ENCONTRADO).strip().upper()
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return NAO_ENCONTRADO
+            logger.warning("consulta de situação cadastral falhou: HTTP %s", exc.code)
+        except (OSError, ValueError) as exc:
+            logger.warning("consulta de situação cadastral falhou: %s", type(exc).__name__)
+        return None
 
     def _recarregar_se_mudou(self) -> None:
         if self._caminho is None:
@@ -357,7 +407,7 @@ Resultado = tuple[str, str] | None
 
 def _r_cnpj_sacado(linha: LinhaLote, params: dict, ctx: ContextoValidacao, ledger: ShadowLedger | None) -> Resultado:
     motivo = diagnosticar_documento(linha.doc_sacado)
-    if motivo is None:
+    if motivo is None or not linha.doc_sacado:  # vazio já vira FORMATO_INVALIDO
         return None
     doc = linha.doc_sacado_original.strip() or "vazio"
     nome = linha.nome_sacado.strip()
@@ -370,7 +420,7 @@ def _r_cnpj_sacado(linha: LinhaLote, params: dict, ctx: ContextoValidacao, ledge
 
 def _r_cnpj_cedente(linha: LinhaLote, params: dict, ctx: ContextoValidacao, ledger: ShadowLedger | None) -> Resultado:
     motivo = diagnosticar_documento(linha.doc_cedente)
-    if motivo is None:
+    if motivo is None or not linha.doc_cedente:  # vazio já vira FORMATO_INVALIDO
         return None
     doc = linha.doc_cedente_original.strip() or "vazio"
     return (
@@ -381,8 +431,26 @@ def _r_cnpj_cedente(linha: LinhaLote, params: dict, ctx: ContextoValidacao, ledg
 
 def _r_situacao_sacado(linha: LinhaLote, params: dict, ctx: ContextoValidacao, ledger: ShadowLedger | None) -> Resultado:
     if not linha.doc_sacado:
-        return None
-    situacao = ctx.situacoes.get(linha.doc_sacado, SITUACAO_SE_AUSENTE)
+        return None  # vazio já vira FORMATO_INVALIDO
+    if diagnosticar_documento(linha.doc_sacado) is not None:
+        return (
+            f"Não foi possível consultar o cliente {_cliente(linha)} na Receita Federal porque o CNPJ informado "
+            "está errado, e sem essa consulta o fundo não pode comprar a nota.",
+            "Corrija o CNPJ do cliente na planilha (veja o erro de documento desta mesma nota) e envie de novo.",
+        )
+    situacao = ctx.situacoes.get(linha.doc_sacado)
+    if situacao is None:
+        return (
+            f"Não conseguimos confirmar agora a situação cadastral do cliente {_cliente(linha)} na Receita Federal. "
+            "Sem essa confirmação o fundo não pode comprar a nota.",
+            "Envie o lote de novo em alguns minutos. Se o problema continuar, fale com o gestor do fundo.",
+        )
+    if situacao == NAO_ENCONTRADO:
+        return (
+            f"O CNPJ do cliente {_cliente(linha)} não foi encontrado na base da Receita Federal. "
+            "O fundo só compra notas de clientes com cadastro confirmado.",
+            "Confira o CNPJ do cliente na nota fiscal e reenvie a nota com o documento correto.",
+        )
     aceitas = [str(s).strip().upper() for s in params.get("situacoes_aceitas", [])]
     if situacao in aceitas:
         return None
@@ -513,7 +581,7 @@ def _avaliador_concentracao(dimensao: str) -> Callable[..., Resultado]:
         folga = max(0.0, min(folgas))
         nome = (linha.nome_sacado if dimensao == "sacado" else linha.nome_cedente).strip()
         if agrupamento == AGRUPAMENTO_RAIZ and len(doc) == 14:
-            ident = f"grupo econômico de CNPJ raiz {formatar_documento(doc[:8])}"
+            ident = f"somando matriz e filiais, todos os CNPJs que começam com {formatar_documento(doc[:8])}"
         else:
             ident = formatar_documento(doc)
         descricao = f"{nome} ({ident})" if nome else ident
@@ -744,6 +812,8 @@ def validar_config(config: ValidadoresConfig) -> list[str]:
         taxa = precificacao.taxa_mensal_percentual
         if taxa is not None and not (0 <= taxa < 100):
             erros.append("precificacao.taxa_mensal_percentual deve estar entre 0 e 100 (ex.: 2.0 = 2% a.m.)")
+        if precificacao.prazo_minimo_cobranca_dias < 0:
+            erros.append("precificacao.prazo_minimo_cobranca_dias não pode ser negativo")
         if precificacao.base_dias <= 0:
             erros.append("precificacao.base_dias deve ser maior que zero")
     return erros
@@ -779,7 +849,7 @@ def _normalizar_coluna(nome: str) -> str:
     return _ALIASES_COLUNA.get(coluna, coluna)
 
 
-def ler_lote_csv(conteudo: bytes) -> list[tuple[int, dict[str, str]]]:
+def ler_lote_csv(conteudo: bytes, max_linhas: int | None = None) -> list[tuple[int, dict[str, str]]]:
     """Devolve (linha física no arquivo, registro) para cada nota. Cabeçalho = linha 1."""
     texto = decodificar_csv(conteudo)
     linhas = texto.splitlines()
@@ -802,6 +872,11 @@ def ler_lote_csv(conteudo: bytes) -> list[tuple[int, dict[str, str]]]:
         for coluna, valor in zip(cabecalho, campos):
             registro[coluna] = valor
         registros.append((inicio + leitor.line_num, registro))
+        if max_linhas is not None and len(registros) > max_linhas:
+            raise ErroArquivoLote(
+                f"O arquivo tem mais de {max_linhas:,} notas, o limite por lote. Divida a planilha em lotes menores."
+                .replace(",", ".")
+            )
     if not registros:
         raise ErroArquivoLote("O arquivo não tem nenhuma nota abaixo do cabeçalho.")
     return registros
@@ -840,11 +915,15 @@ def montar_linha(
     if not doc_cedente:
         problemas.append("o CNPJ da sua empresa (DOC_CEDENTE) está vazio")
     doc_sacado = normalizar_documento(registro["DOC_SACADO"])
+    if not doc_sacado:
+        problemas.append("o CNPJ do cliente (DOC_SACADO) está vazio")
 
     venc_normalizado = formatar_data_br(vencimento) if vencimento else venc_texto
     prazo = calcular_prazo_dias(vencimento, data_base) if vencimento else 0
     if valor_ok:
-        preco = precificar(valor, prazo, taxa_mensal, precificacao.metodo, precificacao.base_dias)
+        # prazo mínimo de cobrança: nota de prazo curto (inclusive prazo 0) paga ao menos N dias de deságio
+        prazo_cobrado = max(prazo, precificacao.prazo_minimo_cobranca_dias) if prazo >= 0 else prazo
+        preco = precificar(valor, prazo_cobrado, taxa_mensal, precificacao.metodo, precificacao.base_dias)
         desagio, liquido = preco.desagio_reais, preco.valor_liquido
     else:
         desagio = liquido = 0.0
@@ -875,8 +954,51 @@ def montar_linha(
 # Motor
 # ---------------------------------------------------------------------------
 
+def _explicar_preterida(
+    linha: LinhaLote,
+    codigo: str,
+    linhas: list[LinhaLote],
+    salvas_pos: list[int],
+    agrupamentos: dict[str, str],
+    ganho: float,
+) -> str:
+    """Explica em português simples por que o otimizador tirou esta nota, com os números do próprio lote."""
+    dimensao = "sacado" if codigo.endswith("SACADO") else "cedente"
+    agrupamento = agrupamentos.get(dimensao, AGRUPAMENTO_DOCUMENTO)
+
+    def grupo(l: LinhaLote) -> str:
+        return agrupar_documento(l.doc_sacado if dimensao == "sacado" else l.doc_cedente, agrupamento)
+
+    substitutas = sorted((linhas[p] for p in salvas_pos if grupo(linhas[p]) == grupo(linha)), key=lambda l: l.linha_csv)
+    if dimensao == "sacado":
+        limite = ("o fundo tem um limite de quanto pode comprar de cada cliente, e não cabem todas as notas "
+                  "deste cliente que estão no seu arquivo")
+    else:
+        limite = ("o fundo tem um limite de quanto pode comprar de cada empresa, e não cabem todas as notas "
+                  "da sua empresa que estão neste arquivo")
+    texto = f" Por que esta nota ficou de fora: {limite}. O sistema escolheu a combinação que deixa mais dinheiro com você hoje"
+    if substitutas:
+        nomes = [f"nº {l.nu_documento} (linha {l.linha_csv})" for l in substitutas[:5]]
+        if len(substitutas) > 5:
+            nomes.append(f"mais {len(substitutas) - 5}")
+        total = sum(l.valor_nominal for l in substitutas)
+        liquido = sum(l.valor_liquido for l in substitutas)
+        texto += (
+            f": no lugar desta entraram as notas {_lista_humana(nomes)}, que somam {formatar_brl(total)} e "
+            f"rendem {formatar_brl(liquido)} para você, contra {formatar_brl(linha.valor_liquido)} desta nota"
+        )
+    return texto + f". No total do lote, você recebe {formatar_brl(ganho)} a mais com essa escolha."
+
+
 class RuleEngine:
-    def __init__(self, index: StockIndex, config: ValidadoresConfig, caminho_config: Path, cadastro: CadastroSituacao):
+    def __init__(
+        self,
+        index: StockIndex,
+        config: ValidadoresConfig,
+        caminho_config: Path,
+        cadastro: CadastroSituacao,
+        max_linhas_lote: int = MAX_LINHAS_LOTE_PADRAO,
+    ):
         erros = validar_config(config)
         if erros:
             raise ErroConfiguracao(erros)
@@ -886,14 +1008,27 @@ class RuleEngine:
         self._cadastro = cadastro
         self._lock = threading.Lock()
         self.versao_config = 1
+        self.max_linhas_lote = max_linhas_lote
 
     @property
     def config(self) -> ValidadoresConfig:
         return self._config
 
+    def validar_compatibilidade(self, nova: ValidadoresConfig) -> list[str]:
+        """O estoque é indexado no startup pelo fundo do JSON; trocar o fundo exige reiniciar."""
+        atual = self._config.fundo
+        mesmo_cnpj = normalizar_documento(nova.fundo.cnpj) == normalizar_documento(atual.cnpj)
+        mesmo_nome = nova.fundo.nome.strip().upper() == atual.nome.strip().upper()
+        if mesmo_cnpj and mesmo_nome:
+            return []
+        return [
+            f"fundo: trocar de '{atual.nome}' ({atual.cnpj}) para '{nova.fundo.nome}' ({nova.fundo.cnpj}) "
+            "exige reiniciar a API, porque o estoque é indexado no startup pelo fundo do JSON"
+        ]
+
     def atualizar_config(self, nova: ValidadoresConfig) -> ValidadoresConfig:
         """Zero-Deploy: valida, persiste em disco e troca a configuração em memória."""
-        erros = validar_config(nova)
+        erros = validar_config(nova) + self.validar_compatibilidade(nova)
         if erros:
             raise ErroConfiguracao(erros)
         with self._lock:
@@ -984,6 +1119,83 @@ class RuleEngine:
             )
         return restricoes, agrupamentos["sacado"], agrupamentos["cedente"]
 
+    def validar_carteira(self, conteudo: bytes, config: ValidadoresConfig | None = None) -> list[dict[str, Any]]:
+        """Modo carteira: julga cada linha de um estoque contra as regras do fundo.
+
+        Diferenças do modo lote (é o formato do gabarito resultado_esperado_100k.json):
+        - a data de referência de cada nota é a própria DATA_AQUISICAO (sem ela, a data-base padrão);
+        - concentração é estática por fundo: a raiz do sacado (ou cedente) acima do teto, medida sobre as
+          notas elegíveis daquele fundo, barra todas as notas dela; só é avaliada em nota sem outro erro;
+        - sem radar de duplicidade: o arquivo é o próprio estoque.
+        """
+        cfg = config or self._config
+        taxa = self.taxa_configurada(cfg)
+        precificacao = cfg.precificacao or PrecificacaoConfig()
+        regras = [r for r in self._regras_em_uso(cfg) if not r[0].sistema]
+        estaticas = [r for r in regras if not r[0].stateful]
+        concentracoes = [r for r in regras if r[0].codigo.startswith("CONCENTRACAO_MAXIMA_")]
+
+        registros = ler_lote_csv(conteudo)
+        linhas: list[LinhaLote] = []
+        fundos: list[str] = []
+        datas: list[date] = []
+        for numero, registro in registros:
+            try:
+                data_ref = parse_data_br(registro["DATA_AQUISICAO"])
+            except ValueError:
+                data_ref = self.index.data_base_padrao
+            linhas.append(montar_linha(numero, registro, data_ref, taxa, precificacao))
+            datas.append(data_ref)
+            fundos.append(registro["NOME_FUNDO"].strip().upper())
+
+        consulta = any(r.codigo == "SITUACAO_CADASTRAL_SACADO" for r, _, _ in estaticas)
+        docs = {l.doc_sacado for l in linhas if l.doc_sacado and diagnosticar_documento(l.doc_sacado) is None}
+        situacoes = self._cadastro.consultar(docs) if consulta else {}
+
+        erros: list[list[ErroValidacao]] = []
+        for linha, data_ref in zip(linhas, datas):
+            ctx = ContextoValidacao(data_ref, self.index, situacoes, cfg.fundo.nome)
+            da_linha = []
+            if linha.problemas_formato:
+                da_linha.append(ErroValidacao(CODIGO_FORMATO, TITULO_FORMATO, "", "", SEV_REGRA, -2))
+            for regra, params, ordem in estaticas:
+                resultado = regra.avaliar(linha, params, ctx, None)
+                if resultado:
+                    da_linha.append(regra.erro(resultado, ordem))
+            erros.append(da_linha)
+
+        for regra, params, ordem in concentracoes:
+            dimensao = "sacado" if regra.codigo.endswith("SACADO") else "cedente"
+            agrupamento = _agrupamento(params)
+            total: dict[str, float] = defaultdict(float)
+            grupo: dict[tuple[str, str], float] = defaultdict(float)
+            chaves = []
+            for pos, linha in enumerate(linhas):
+                doc = linha.doc_sacado if dimensao == "sacado" else linha.doc_cedente
+                chave = (fundos[pos], agrupar_documento(doc, agrupamento))
+                chaves.append(chave)
+                if not erros[pos]:
+                    total[fundos[pos]] += linha.valor_nominal
+                    grupo[chave] += linha.valor_nominal
+            pct, teto = params.get("percentual_maximo"), params.get("valor_maximo")
+            for pos, chave in enumerate(chaves):
+                if erros[pos]:
+                    continue
+                estourou = (pct is not None and grupo[chave] / total[chave[0]] * 100 > float(pct) + 1e-9) or (
+                    teto is not None and grupo[chave] > float(teto) + 1e-6
+                )
+                if estourou:
+                    erros[pos].append(ErroValidacao(regra.codigo, regra.titulo_amigavel, "", "", SEV_REGRA, ordem))
+
+        saida: list[dict[str, Any]] = []
+        for (_, registro), linha, da_linha in zip(registros, linhas, erros):
+            item: dict[str, Any] = {"linha": linha.linha_csv, "id": registro["NU_DOCUMENTO"].strip(), "status": "APROVADO"}
+            if da_linha:
+                item["status"] = "BARRADO"
+                item["barrado_por"] = [e.codigo for e in sorted(da_linha, key=lambda e: e.ordem)]
+            saida.append(item)
+        return saida
+
     def validar_lote(
         self,
         conteudo: bytes,
@@ -1000,10 +1212,13 @@ class RuleEngine:
 
         linhas = [
             montar_linha(numero, registro, data_base, taxa, precificacao)
-            for numero, registro in ler_lote_csv(conteudo)
+            for numero, registro in ler_lote_csv(conteudo, self.max_linhas_lote)
         ]
-        ctx = ContextoValidacao(data_base, self.index, self._cadastro.snapshot(), cfg.fundo.nome)
         regras = self._regras_em_uso(cfg)
+        consulta_situacao = any(r.codigo == "SITUACAO_CADASTRAL_SACADO" for r, _, _ in regras)
+        docs_validos = {l.doc_sacado for l in linhas if l.doc_sacado and diagnosticar_documento(l.doc_sacado) is None}
+        situacoes = self._cadastro.consultar(docs_validos) if consulta_situacao else {}
+        ctx = ContextoValidacao(data_base, self.index, situacoes, cfg.fundo.nome)
         estaticas = [r for r in regras if not r[0].stateful]
         stateful = [r for r in regras if r[0].stateful]
 
@@ -1029,8 +1244,10 @@ class RuleEngine:
 
         original = self._simular(linhas, erros_estaticos, list(range(len(linhas))), stateful, ctx)
         melhor = original
+        agrupamentos: dict[str, str] = {}
         if otimizar_lote and len(linhas) > 1:
             restricoes, agrup_sacado, agrup_cedente = self._restricoes_otimizador(regras, linhas)
+            agrupamentos = {"sacado": agrup_sacado, "cedente": agrup_cedente}
             checa_lote = any(r.codigo == "DUPLICIDADE_LOTE" for r, _, _ in stateful)
             primeira: dict[str, int] = {}
             for pos, linha in enumerate(linhas):
@@ -1047,12 +1264,18 @@ class RuleEngine:
                 )
                 for pos, linha in enumerate(linhas)
             ]
-            for ordem in gerar_ordens_candidatas(itens, restricoes)[1:]:
+            if len(linhas) <= LIMITE_OTIMIZACAO_COMPLETA:
+                candidatas = gerar_ordens_candidatas(itens, restricoes)[1:]
+            else:
+                candidatas = [ordenar_lote_otimizado(itens, restricoes)]
+            for ordem in candidatas:
                 simulacao = self._simular(linhas, erros_estaticos, ordem, stateful, ctx)
                 if simulacao.valor_liquido > melhor.valor_liquido + 0.005:
                     melhor = simulacao
 
-        return self._montar_resposta(conteudo, linhas, original, melhor, data_base, taxa, otimizar_lote, inicio)
+        return self._montar_resposta(
+            conteudo, linhas, original, melhor, data_base, taxa, otimizar_lote, inicio, agrupamentos
+        )
 
     def _montar_resposta(
         self,
@@ -1064,6 +1287,7 @@ class RuleEngine:
         taxa: float,
         otimizar_lote: bool,
         inicio: float,
+        agrupamentos: dict[str, str] | None = None,
     ) -> BatchValidationResponse:
         posicao = {pos: i + 1 for i, pos in enumerate(melhor.ordem)}
         data_base_txt = formatar_data_br(data_base)
@@ -1071,8 +1295,11 @@ class RuleEngine:
         itens: list[ItemLote] = []
         bruto_total = bruto_aprovado = desagio_total = liquido_total = prazo_x_valor = 0.0
         qtd_fraude = qtd_salvas = 0
+        ganho = max(0.0, melhor.valor_liquido - original.valor_liquido)
+        salvas_pos = [p for p in melhor.aprovadas if p not in original.aprovadas]
 
         for pos, linha in enumerate(linhas):
+            preterida = pos in original.aprovadas and pos not in melhor.aprovadas
             erros = sorted(melhor.erros[pos], key=lambda e: (-_RANK_SEVERIDADE[e.severidade], e.ordem))
             aprovada = pos in melhor.aprovadas
             salva = otimizar_lote and aprovada and pos not in original.aprovadas
@@ -1112,7 +1339,12 @@ class RuleEngine:
                     ErroNota(
                         codigo=e.codigo,
                         titulo_amigavel=e.titulo_amigavel,
-                        mensagem_empresa=e.mensagem_empresa,
+                        mensagem_empresa=e.mensagem_empresa
+                        + (
+                            _explicar_preterida(linha, e.codigo, linhas, salvas_pos, agrupamentos or {}, ganho)
+                            if preterida and e.codigo.startswith("CONCENTRACAO_")
+                            else ""
+                        ),
                         acao_recomendada=e.acao_recomendada,
                     )
                     for e in erros

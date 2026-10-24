@@ -6,8 +6,10 @@ from datetime import date
 import pytest
 
 from app.api_schemas import ValidadoresConfig
-from app.quant_analytics import parse_data_br, parse_valor_br, precificar, proximo_dia_util
-from app.rule_engine import ErroArquivoLote, cnpj_valido, cpf_valido, validar_config
+from app import rule_engine
+from app.br_utils import formatar_brl, parse_data_br, parse_valor_br, proximo_dia_util
+from app.quant_analytics import precificar
+from app.rule_engine import CadastroSituacao, ErroArquivoLote, ErroConfiguracao, cnpj_valido, cpf_valido, validar_config
 from app.stock_index import gerar_hash_titulo
 
 from .conftest import (
@@ -17,6 +19,7 @@ from .conftest import (
     SACADO_LIVRE,
     SACADO_MESMA_RAIZ,
     SACADO_OTIMIZADOR,
+    SACADO_SEM_CADASTRO,
     TITULO_ANTECIPE,
     TITULO_OUTRO_FUNDO,
     config_com,
@@ -180,7 +183,9 @@ def test_triplo_radar_duplicidade(engine):
 def test_avaliacao_sem_short_circuit(engine):
     lote = montar_csv(linha_csv("12.345.678/0001-00", "X1", "45,00", "15/09/2027", tipo="Cheque"))
     item = engine.validar_lote(lote).itens[0]
-    assert set(codigos(item)) == {"CNPJ_SACADO_VALIDO", "TIPO_RECEBIVEL", "VALOR_MINIMO", "PRAZO_MAXIMO"}
+    assert set(codigos(item)) == {
+        "CNPJ_SACADO_VALIDO", "SITUACAO_CADASTRAL_SACADO", "TIPO_RECEBIVEL", "VALOR_MINIMO", "PRAZO_MAXIMO"
+    }
     assert all(e.mensagem_empresa and e.acao_recomendada and e.titulo_amigavel for e in item.erros)
 
 
@@ -312,3 +317,130 @@ def test_validar_config_rejeita_erros(engine):
 def test_validar_config_original_ok(engine):
     assert validar_config(engine.config) == []
     assert engine.regras_ativas_count() == 7
+
+
+# ---------------------------------------------------------------------------
+# Correções da revisão
+# ---------------------------------------------------------------------------
+
+def test_sacado_vazio_e_recusado_mesmo_sem_regra_de_cnpj(engine):
+    cfg = config_com(engine, "CNPJ_SACADO_VALIDO", ativo=False)
+    item = engine.validar_lote(montar_csv(linha_csv("", "S1", "1000,00", "21/11/2026")), config=cfg).itens[0]
+    assert item.status == "RECUSADA"
+    assert codigos(item) == ["FORMATO_INVALIDO"]
+    assert "DOC_SACADO" in item.erros[0].mensagem_empresa
+    # com a regra ligada, o vazio não gera erro duplicado
+    assert codigos(engine.validar_lote(montar_csv(linha_csv("", "S1", "1000,00", "21/11/2026"))).itens[0]) == ["FORMATO_INVALIDO"]
+
+
+def test_troca_de_fundo_exige_restart(engine):
+    dados = engine.config.para_json()
+    dados["fundo"]["cnpj"] = "38.977.622/0001-47"
+    with pytest.raises(ErroConfiguracao, match="reiniciar"):
+        engine.atualizar_config(ValidadoresConfig.model_validate(dados))
+    assert engine.versao_config == 1
+
+
+def test_limite_de_linhas_por_lote(engine):
+    engine.max_linhas_lote = 2
+    lote = montar_csv(*(linha_csv(SACADO_LIVRE, f"L{i}", "1000,00", "21/11/2026") for i in range(3)))
+    with pytest.raises(ErroArquivoLote, match="mais de 2 notas"):
+        engine.validar_lote(lote)
+
+
+def _lote_otimizador():
+    return montar_csv(
+        linha_csv(SACADO_OTIMIZADOR, "O1", "5000,00", "21/12/2026"),
+        linha_csv(SACADO_OTIMIZADOR, "O2", "3000,00", "01/11/2026"),
+        linha_csv(SACADO_OTIMIZADOR, "O3", "3000,00", "03/11/2026"),
+    )
+
+
+def test_otimizador_explica_nota_preterida(engine):
+    cfg = config_com(engine, "CONCENTRACAO_MAXIMA_SACADO", percentual_maximo=None, valor_maximo=6000.0)
+    r = engine.validar_lote(_lote_otimizador(), config=cfg)
+    preterida = r.itens[0]
+    assert preterida.status == "RECUSADA"
+    msg = preterida.erros[0].mensagem_empresa
+    assert "Por que esta nota ficou de fora" in msg
+    assert "nº O2 (linha 3) e nº O3 (linha 4)" in msg  # quem entrou no lugar
+    assert "somam R$ 6.000,00 e rendem R$ 5.956,00 para você, contra R$ 4.800,00 desta nota" in msg
+    assert f"você recebe {formatar_brl(r.meta.ganho_otimizador_reais)} a mais" in msg
+    assert "prazo" not in msg.split("Por que")[1]  # não afirma critério que pode não ser o usado
+    sem = engine.validar_lote(_lote_otimizador(), config=cfg, otimizar_lote=False)
+    assert all("Por que esta nota ficou de fora" not in e.mensagem_empresa for i in sem.itens for e in i.erros)
+
+
+def test_lote_grande_usa_so_ordem_quant(engine, monkeypatch):
+    monkeypatch.setattr(rule_engine, "LIMITE_OTIMIZACAO_COMPLETA", 1)
+    monkeypatch.setattr(rule_engine, "gerar_ordens_candidatas", lambda *a: pytest.fail("não deveria gerar todas as candidatas"))
+    cfg = config_com(engine, "CONCENTRACAO_MAXIMA_SACADO", percentual_maximo=None, valor_maximo=6000.0)
+    r = engine.validar_lote(_lote_otimizador(), config=cfg)
+    assert r.meta.ganho_otimizador_reais > 0
+
+
+# ---------------------------------------------------------------------------
+# Situação cadastral fail-closed e prazo mínimo de cobrança
+# ---------------------------------------------------------------------------
+
+def test_cnpj_sem_cadastro_e_recusado(engine):
+    item = engine.validar_lote(montar_csv(linha_csv(SACADO_SEM_CADASTRO, "N1", "1000,00", "21/11/2026"))).itens[0]
+    assert codigos(item) == ["SITUACAO_CADASTRAL_SACADO"]
+    assert "não foi encontrado na base da Receita" in item.erros[0].mensagem_empresa
+
+
+@pytest.fixture()
+def receita_fake():
+    """Servidor HTTP local no formato da BrasilAPI: um CNPJ ATIVA, um 404 e um que devolve 500."""
+    import json as _json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    chamadas = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            doc = self.path.rsplit("/", 1)[-1]
+            chamadas.append(doc)
+            codigo, corpo = {SACADO_LIVRE: (200, {"descricao_situacao_cadastral": "Ativa"}),
+                             SACADO_BAIXADO: (500, {})}.get(doc, (404, {}))
+            self.send_response(codigo)
+            self.end_headers()
+            self.wfile.write(_json.dumps(corpo).encode())
+
+        def log_message(self, *args):
+            pass
+
+    servidor = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=servidor.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{servidor.server_port}/api/cnpj/v1", chamadas
+    servidor.shutdown()
+
+
+def test_consulta_receita_por_api_fail_closed(receita_fake):
+    url, chamadas = receita_fake
+    cadastro = CadastroSituacao(None, url, timeout_s=2)
+    versao = cadastro.versao
+    r = cadastro.consultar({SACADO_LIVRE, SACADO_SEM_CADASTRO, SACADO_BAIXADO})
+    assert r == {SACADO_LIVRE: "ATIVA", SACADO_SEM_CADASTRO: "NAO_ENCONTRADO"}  # erro 500 fica de fora
+    assert cadastro.versao != versao  # a falha invalida o cache de idempotência
+    cadastro.consultar({SACADO_LIVRE})
+    assert chamadas.count(SACADO_LIVRE) == 1  # segunda consulta vem do cache
+
+
+def test_falha_na_consulta_recusa_a_nota(engine, receita_fake):
+    engine._cadastro = CadastroSituacao(None, receita_fake[0], timeout_s=2)
+    item = engine.validar_lote(montar_csv(linha_csv(SACADO_BAIXADO, "F1", "1000,00", "21/11/2026"))).itens[0]
+    assert item.status == "RECUSADA" and codigos(item) == ["SITUACAO_CADASTRAL_SACADO"]
+    assert "Não conseguimos confirmar" in item.erros[0].mensagem_empresa
+
+
+def test_prazo_minimo_de_cobranca(engine):
+    lote = montar_csv(
+        linha_csv(SACADO_LIVRE, "P0", "10000,00", "22/10/2026"),  # vence na data-base
+        linha_csv(SACADO_LIVRE, "P10", "10000,00", "01/11/2026"),
+    )
+    hoje, dez_dias = engine.validar_lote(lote).itens
+    assert hoje.status == "APROVADA" and hoje.prazo_dias == 0
+    assert hoje.desagio_reais == 33.33  # 10.000 x 2% x 5/30
+    assert dez_dias.desagio_reais == 66.67
