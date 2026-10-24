@@ -6,7 +6,7 @@ import { TelaEstatistica } from "./components/telas/TelaEstatistica";
 import { StatusApi } from "./components/StatusApi";
 import { TabelaRecebiveis } from "./components/TabelaRecebiveis";
 import { GavetaGestor } from "./components/GavetaGestor";
-import { validarLote, salvarValidadores, simularLoteLocal } from "./services/api";
+import { validarLote, salvarValidadores, simularLoteLocal, obterHealth } from "./services/api";
 import { formatarMoedaCompacta } from "./utils/formatters";
 import type { BatchValidationResponse, ComparativoRegras, FonteDados, ModoValidacao, ValidadoresConfig } from "./types/api";
 
@@ -20,6 +20,7 @@ export default function App() {
   // Parâmetros da operação
   const [dataBase, setDataBase] = useState<string>("22/10/2026");
   const [taxaMensalPercentual, setTaxaMensalPercentual] = useState<number>(2.0);
+  const [taxaAlteradaManualmente, setTaxaAlteradaManualmente] = useState<boolean>(false);
   const [otimizarLote, setOtimizarLote] = useState<boolean>(true);
   const [modo, setModo] = useState<ModoValidacao>("lote");
 
@@ -54,6 +55,16 @@ export default function App() {
   useEffect(() => {
     setResultado(simularLoteLocal({ dataBase: "22/10/2026", taxaMensal: 0.02, otimizarLote: true }));
     setFonteDados("demo");
+    obterHealth()
+      .then((res) => {
+        if (res.dados.taxa_mensal_padrao !== undefined) {
+          setTaxaMensalPercentual(Number((res.dados.taxa_mensal_padrao * 100).toFixed(4)));
+        }
+        if (res.dados.data_base_padrao) {
+          setDataBase(res.dados.data_base_padrao);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const processarLote = useCallback(
@@ -66,7 +77,7 @@ export default function App() {
       try {
         const res = await validarLote(arquivo, {
           dataBase,
-          taxaMensal: taxaMensalPercentual / 100,
+          taxaMensal: taxaAlteradaManualmente ? taxaMensalPercentual / 100 : undefined,
           otimizarLote,
           validadoresOverride: override,
           modo,
@@ -91,7 +102,7 @@ export default function App() {
         setCarregando(false);
       }
     },
-    [dataBase, taxaMensalPercentual, otimizarLote, modo, resultado]
+    [dataBase, taxaMensalPercentual, taxaAlteradaManualmente, otimizarLote, modo, resultado]
   );
 
   const handleLote = (arquivo: File, qtdArquivos: number) => {
@@ -148,7 +159,10 @@ export default function App() {
             dataBase={dataBase}
             onDataBaseChange={setDataBase}
             taxaMensalPercentual={taxaMensalPercentual}
-            onTaxaMensalChange={setTaxaMensalPercentual}
+            onTaxaMensalChange={(v) => {
+              setTaxaMensalPercentual(v);
+              setTaxaAlteradaManualmente(true);
+            }}
             otimizarLote={otimizarLote}
             onOtimizarLoteChange={setOtimizarLote}
           />

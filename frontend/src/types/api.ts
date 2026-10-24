@@ -45,6 +45,7 @@ export interface HealthResponse {
   patrimonio_antecipe_fidc: number;
   fundos_monitorados: number;
   regras_ativas_count: number;
+  taxa_mensal_padrao: number;
   tempo_carga_estoque_ms: number;
   versao_config: number;
 }

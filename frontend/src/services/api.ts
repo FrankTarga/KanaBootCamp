@@ -113,6 +113,7 @@ export const HEALTH_MOCK: HealthResponse = {
   patrimonio_antecipe_fidc: 18540230.0,
   fundos_monitorados: 18,
   regras_ativas_count: 7,
+  taxa_mensal_padrao: 0.02,
   tempo_carga_estoque_ms: 685.4,
   versao_config: 1,
 };
