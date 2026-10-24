@@ -26,6 +26,8 @@ services:
       LOG_LEVEL: INFO
       RECEITA_API_URL: http://mock-receita:8001/api/cnpj/v1
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}  # sem .env tudo funciona, só o PUT das regras responde 403 (veja .env.example)
+      BANCA_EMAIL: ${BANCA_EMAIL:-banca@antecipe.com.br}
+      BANCA_SENHA: ${BANCA_SENHA:-}  # sem ela o usuário da banca não é criado e o login responde 401
       # DATA_BASE_PADRAO: "22/10/2026"  # opcional: força a data-base (senão = D+1 útil da maior DATA_AQUISICAO)
     volumes:
       # Diretório inteiro montado: o PUT /validators grava com os.replace e persiste no host.

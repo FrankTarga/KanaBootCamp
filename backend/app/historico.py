@@ -4,13 +4,17 @@ Os 100k títulos do estoque continuam em RAM (StockIndex); aqui fica só o regis
 - lotes: o resumo de toda validação (inclusive repetições servidas pelo cache e o modo carteira);
 - notas_lote + erros_nota: o detalhe nota a nota, só do modo lote (uma carteira de 100k notas daria
   dezenas de MB por envio e é o próprio estoque, que já está em disco);
-- mudancas_regras: cada PUT /validators aceito.
+- mudancas_regras: cada PUT /validators aceito;
+- usuarios: login do portal, senha só como hash scrypt com salt.
 Uma conexão por operação: seguro com as threads do FastAPI e sem estado compartilhado.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
@@ -83,6 +87,15 @@ CREATE TABLE IF NOT EXISTS mudancas_regras (
     regras_ativas INTEGER NOT NULL,
     config_json   TEXT    NOT NULL
 );
+CREATE TABLE IF NOT EXISTS usuarios (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    email      TEXT    NOT NULL UNIQUE,  -- sempre minúsculo e sem espaços
+    senha_hash TEXT    NOT NULL,         -- scrypt$<salt hex>$<hash hex>
+    nome       TEXT    NOT NULL,
+    cargo      TEXT    NOT NULL,
+    role       TEXT    NOT NULL CHECK (role IN ('CEDENTE', 'GESTOR')),
+    criado_em  TEXT    NOT NULL
+);
 """
 
 _COLUNAS_NOTA = (
@@ -95,6 +108,21 @@ _BOOLEANOS_LOTE = ("otimizar_lote", "what_if", "replay")
 
 def _agora() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def hash_senha(senha: str, salt: bytes | None = None) -> str:
+    salt = salt or os.urandom(16)
+    digest = hashlib.scrypt(senha.encode(), salt=salt, n=2**14, r=8, p=1)
+    return f"scrypt${salt.hex()}${digest.hex()}"
+
+
+def senha_confere(senha: str, guardado: str) -> bool:
+    _, salt_hex, _ = guardado.split("$")
+    return hmac.compare_digest(hash_senha(senha, bytes.fromhex(salt_hex)), guardado)
+
+
+# e-mail inexistente também paga o custo do scrypt: o tempo de resposta não entrega quais e-mails existem
+_HASH_FALSO = hash_senha("usuario-inexistente")
 
 
 def _lote(linha: sqlite3.Row) -> dict[str, Any]:
@@ -155,6 +183,27 @@ class Historico:
                 "VALUES (?, ?, ?, ?, ?)",
                 (_agora(), request_id, versao_config, regras_ativas, json.dumps(config, ensure_ascii=False)),
             )
+
+    def salvar_usuario(self, email: str, senha: str, nome: str, cargo: str, role: str) -> None:
+        """Cria o usuário ou, se o e-mail já existe, troca senha e dados (o seed do startup roda toda vez)."""
+        with closing(self._conectar()) as conn, conn:
+            conn.execute(
+                "INSERT INTO usuarios (email, senha_hash, nome, cargo, role, criado_em) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (email) DO UPDATE SET senha_hash = excluded.senha_hash, nome = excluded.nome, "
+                "cargo = excluded.cargo, role = excluded.role",
+                (email.strip().lower(), hash_senha(senha), nome, cargo, role, _agora()),
+            )
+
+    def autenticar(self, email: str, senha: str) -> dict[str, Any] | None:
+        with closing(self._conectar()) as conn:
+            linha = conn.execute(
+                "SELECT email, senha_hash, nome, cargo, role FROM usuarios WHERE email = ?", (email.strip().lower(),)
+            ).fetchone()
+        if not senha_confere(senha, linha["senha_hash"] if linha else _HASH_FALSO) or linha is None:
+            return None
+        usuario = dict(linha)
+        usuario.pop("senha_hash")
+        return usuario
 
     # ----------------------------------------------------------------- leitura
 

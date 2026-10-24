@@ -315,6 +315,24 @@ class PaginaMudancasRegras(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Login do portal
+# ---------------------------------------------------------------------------
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    senha: str = Field(min_length=1, max_length=128)
+
+
+class UsuarioLogado(BaseModel):
+    # shortcut: sem token/sessão; o login só identifica o perfil e as rotas seguem abertas
+    # (o PUT /validators continua exigindo X-API-Key). Emitir token se as rotas precisarem de dono.
+    email: str
+    nome: str
+    cargo: str
+    role: Literal["CEDENTE", "GESTOR"]
+
+
+# ---------------------------------------------------------------------------
 # Erros (formato único para toda a API)
 # ---------------------------------------------------------------------------
 

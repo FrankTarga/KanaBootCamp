@@ -29,9 +29,11 @@ from .api_schemas import (
     DetalheLoteHistorico,
     ErroApi,
     HealthResponse,
+    LoginRequest,
     PaginaHistoricoLotes,
     PaginaMudancasRegras,
     PaginaOcorrenciasNota,
+    UsuarioLogado,
     ValidadoresConfig,
 )
 from .br_utils import formatar_data_br, parse_data_br
@@ -69,6 +71,8 @@ class Settings:
     receita_api_url: str | None
     receita_timeout_s: float
     admin_api_key: str | None
+    banca_email: str
+    banca_senha: str | None
 
 
 def carregar_settings() -> Settings:
@@ -87,6 +91,8 @@ def carregar_settings() -> Settings:
         receita_api_url=os.getenv("RECEITA_API_URL", "").strip() or None,
         receita_timeout_s=float(os.getenv("RECEITA_TIMEOUT_S", "2")),
         admin_api_key=os.getenv("ADMIN_API_KEY", "").strip() or None,
+        banca_email=os.getenv("BANCA_EMAIL", "banca@antecipe.com.br").strip().lower(),
+        banca_senha=os.getenv("BANCA_SENHA", "") or None,
     )
 
 
@@ -145,6 +151,12 @@ async def lifespan(app: FastAPI):
     )
     app.state.cache = CacheIdempotencia(settings.cache_idempotencia)
     app.state.historico = Historico(settings.historico_path)
+    if settings.banca_senha:
+        app.state.historico.salvar_usuario(
+            settings.banca_email, settings.banca_senha, "Banca avaliadora", "Gestor do fundo", "GESTOR"
+        )
+    else:
+        logger.warning("BANCA_SENHA não definida: usuário da banca não foi criado")
     if not settings.admin_api_key:
         logger.warning("ADMIN_API_KEY não definida: PUT /validators fica bloqueado")
     logger.info("situacao_cadastral fonte=%s", settings.receita_api_url or settings.cadastro_path)
@@ -361,6 +373,14 @@ def atualizar_validadores(
         raise ErroEntrada(
             "FALHA_PERSISTENCIA", "Não foi possível salvar validadores_antecipe.json; nada foi alterado.", 500
         ) from None
+
+
+@router.post("/auth/login", response_model=UsuarioLogado)
+def login(dados: LoginRequest, request: Request) -> UsuarioLogado:
+    usuario = request.app.state.historico.autenticar(dados.email, dados.senha)
+    if usuario is None:
+        raise ErroEntrada("CREDENCIAIS_INVALIDAS", "E-mail ou senha incorretos.", 401)
+    return UsuarioLogado(**usuario)
 
 
 @router.post("/batches/validate", response_model=BatchValidationResponse)
