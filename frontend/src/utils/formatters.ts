@@ -156,3 +156,18 @@ export function gerarCsvRelatorioPendencias(itens: ItemLote[]): string {
   const csv = [cabecalho.join(";"), ...linhas.map((l) => l.join(";"))].join("\r\n");
   return "\uFEFF" + csv;
 }
+
+/** Divide um valor em número e unidade para os números grandes da tela (R$ 199,3 mil · R$ 4,6 mi). */
+export function dividirMoedaCompacta(valor: number): { numero: string; unidade: string } {
+  const abs = Math.abs(valor);
+  const [div, unidade] = abs >= 1e9 ? [1e9, "bi"] : abs >= 1e6 ? [1e6, "mi"] : abs >= 1e3 ? [1e3, "mil"] : [1, ""];
+  const casas = div === 1 ? 2 : 1;
+  const numero = (valor / div).toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+  return { numero, unidade };
+}
+
+/** R$ 199,3 mil · R$ 4,6 mi · R$ 950,00 */
+export function formatarMoedaCompacta(valor: number): string {
+  const { numero, unidade } = dividirMoedaCompacta(valor);
+  return `R$ ${numero}${unidade ? " " + unidade : ""}`;
+}

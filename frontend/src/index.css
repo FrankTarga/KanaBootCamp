@@ -10,7 +10,17 @@
   }
 
   body {
-    @apply bg-slate-50 text-slate-900;
+    @apply bg-creme text-slate-900;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
 
   ::selection {
@@ -30,7 +40,7 @@
 
 @layer components {
   .card {
-    @apply rounded-2xl border border-slate-200 bg-white shadow-card;
+    @apply rounded-2xl border border-creme-linha bg-creme-claro shadow-card;
   }
 
   .money {
@@ -67,7 +77,7 @@
   }
 
   .shimmer-text {
-    background-image: linear-gradient(90deg, #047857 0%, #10b981 25%, #a7f3d0 50%, #10b981 75%, #047857 100%);
+    background-image: linear-gradient(90deg, #105A3D 0%, #2FB36F 25%, #AFD5BF 50%, #2FB36F 75%, #105A3D 100%);
     background-size: 200% 100%;
     -webkit-background-clip: text;
     background-clip: text;
@@ -79,6 +89,24 @@
     background-image: linear-gradient(to right, rgb(148 163 184 / 0.12) 1px, transparent 1px),
       linear-gradient(to bottom, rgb(148 163 184 / 0.12) 1px, transparent 1px);
     background-size: 28px 28px;
+  }
+
+  /* Título de seção no estilo "NOSSOS NÚMEROS": fino, maiúsculo e espaçado */
+  .titulo-secao {
+    @apply font-display font-light uppercase tracking-[0.04em] text-4xl sm:text-5xl;
+    text-wrap: balance;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em];
+  }
+
+  .numero-fino {
+    @apply font-display font-light tabular-nums tracking-tight leading-none;
+  }
+
+  .vidro {
+    @apply border border-white/15 bg-white/[0.07] backdrop-blur-md;
   }
 
   .scrollbar-thin {
