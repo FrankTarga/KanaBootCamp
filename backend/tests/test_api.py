@@ -297,3 +297,20 @@ def test_analise_recusas_sem_recusas(client):
     corpo = enviar(client, conteudo=montar_csv(linha_csv(SACADO_LIVRE, "OK", "1000,00", "21/11/2026"))).json()
     analise = corpo["analise_recusas"]
     assert analise["qtd_recusadas"] == 0 and analise["motivos"] == [] and analise["grupos"]["um_problema"] == []
+
+
+def test_cache_nao_guarda_lote_grande(pasta_dados, monkeypatch):
+    """Resposta acima de CACHE_MAX_NOTAS não fica na memória; lote pequeno continua com replay."""
+    monkeypatch.setenv("DATA_DIR", str(pasta_dados))
+    monkeypatch.setenv("CACHE_MAX_NOTAS", "2")
+    monkeypatch.delenv("RECEITA_API_URL", raising=False)
+    grande = montar_csv(*(linha_csv(SACADO_LIVRE, f"G{i}", "1000,00", "21/11/2026") for i in range(3)))
+    pequeno = montar_csv(linha_csv(SACADO_LIVRE, "P1", "1000,00", "21/11/2026"))
+    with TestClient(app) as c:
+        replays_grande = [enviar(c, conteudo=grande).headers["X-Idempotent-Replay"] for _ in range(2)]
+        replays_pequeno = [enviar(c, conteudo=pequeno).headers["X-Idempotent-Replay"] for _ in range(2)]
+        resposta = enviar(c, conteudo=pequeno)
+    assert replays_grande == ["false", "false"]
+    assert replays_pequeno == ["false", "true"]
+    assert resposta.headers["content-type"] == "application/json"
+    assert resposta.json()["itens"][0]["nu_documento"] == "P1"

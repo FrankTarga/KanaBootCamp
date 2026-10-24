@@ -206,6 +206,55 @@ class BatchValidationResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# GET /historico/* (SQLite, paginado)
+# ---------------------------------------------------------------------------
+
+class HistoricoLote(BaseModel):
+    id: int
+    criado_em: str  # ISO 8601 em UTC
+    request_id: str
+    chave_idempotencia: str
+    batch_hash: str
+    modo: str
+    data_base: str
+    taxa_mensal: float
+    otimizar_lote: bool
+    versao_config: int
+    what_if: bool
+    replay: bool
+    total_notas: int
+    qtd_aprovadas: int
+    qtd_recusadas: int
+    qtd_alertas_fraude: int
+    valor_bruto_total: float
+    valor_liquido_receber: float
+    tempo_processamento_ms: float
+
+
+class MudancaRegras(BaseModel):
+    id: int
+    criado_em: str
+    request_id: str
+    versao_config: int
+    regras_ativas: int
+    config: dict[str, Any]
+
+
+class PaginaHistoricoLotes(BaseModel):
+    total: int
+    limite: int
+    offset: int
+    itens: list[HistoricoLote]
+
+
+class PaginaMudancasRegras(BaseModel):
+    total: int
+    limite: int
+    offset: int
+    itens: list[MudancaRegras]
+
+
+# ---------------------------------------------------------------------------
 # Erros (formato único para toda a API)
 # ---------------------------------------------------------------------------
 
