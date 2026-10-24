@@ -670,9 +670,9 @@ def efetivar_compra_lote(
 def obter_historico_lotes(
     request: Request, authorization: str | None = Header(None, description="Bearer <token do login>")
 ) -> dict[str, Any]:
-    """Retorna os lotes simulados e liquidados persistidos no banco ACID. Só gestor (traz lotes de todas as empresas)."""
-    _exigir_gestor(request, authorization)
-    return {"historico": listar_historico_operacoes()}
+    """Retorna os lotes simulados e liquidados persistidos no banco ACID. Cedente vê os que validou; gestor, todos."""
+    usuario = _exigir_usuario(request, authorization)
+    return {"historico": listar_historico_operacoes(usuario_id=_escopo(usuario))}
 
 
 @router.get("/validators/audit")

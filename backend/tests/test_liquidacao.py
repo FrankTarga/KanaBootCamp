@@ -136,9 +136,22 @@ def test_nota_comprada_em_outro_lote_nao_e_comprada_de_novo(client, pasta_dados)
     assert titulos_comprados(pasta_dados) == ["D1"]
 
 
-def test_historico_e_auditoria_do_banco_acid_so_para_gestor(client):
-    for rota in ("/api/v1/batches/history", "/api/v1/validators/audit"):
-        assert client.get(rota).status_code == 401
-        r = client.get(rota, headers=bearer(client, *CEDENTE))
-        assert r.status_code == 403 and r.json()["error"]["code"] == "SEM_PERMISSAO"
-        assert client.get(rota, headers=bearer(client, *GESTOR)).status_code == 200
+def test_historico_de_operacoes_cada_um_ve_o_seu(client):
+    gestor, cedente = bearer(client, *GESTOR), bearer(client, *CEDENTE)
+    do_gestor = validar(client, montar_csv(linha_csv(SACADO_LIVRE, "H1", "2000,00", "21/11/2026")), gestor)
+    do_cedente = validar(client, LOTE, cedente)
+    assert client.get("/api/v1/batches/history").status_code == 401
+
+    def lotes(token):
+        return {op["batch_hash"] for op in client.get("/api/v1/batches/history", headers=token).json()["historico"]}
+
+    assert lotes(cedente) == {do_cedente}
+    assert lotes(gestor) == {do_gestor, do_cedente}
+
+
+def test_auditoria_de_regras_so_para_gestor(client):
+    rota = "/api/v1/validators/audit"
+    assert client.get(rota).status_code == 401
+    r = client.get(rota, headers=bearer(client, *CEDENTE))
+    assert r.status_code == 403 and r.json()["error"]["code"] == "SEM_PERMISSAO"
+    assert client.get(rota, headers=bearer(client, *GESTOR)).status_code == 200

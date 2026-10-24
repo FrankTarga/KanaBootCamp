@@ -488,18 +488,21 @@ def carregar_titulos_liquidados_db() -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
-def listar_historico_operacoes(limite: int = 30) -> list[dict[str, Any]]:
-    """Retorna o histórico de lotes simulados e liquidados para exibição no Front-end."""
+def listar_historico_operacoes(limite: int = 30, usuario_id: int | None = None) -> list[dict[str, Any]]:
+    """Retorna o histórico de lotes simulados e liquidados para exibição no Front-end.
+    usuario_id = só os lotes que esse usuário validou (cedente); None = todos (gestor)."""
+    onde, filtro = ("WHERE usuario_id = ?", (usuario_id,)) if usuario_id is not None else ("", ())
     with get_acid_connection(write_lock=False) as conn:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT batch_hash, criado_em, liquidado_em, cedente_nome, cedente_doc,
                    data_base_utilizada, taxa_mensal, total_notas, qtd_aprovadas,
                    qtd_recusadas, valor_bruto_total, valor_liquido_aprovado,
                    ganho_otimizador, status_operacao
             FROM lotes_operacoes
+            {onde}
             ORDER BY criado_em DESC
             LIMIT ?
-        """, (limite,)).fetchall()
+        """, (*filtro, limite)).fetchall()
         return [dict(r) for r in rows]
 
 
