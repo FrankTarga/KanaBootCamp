@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import {
   Check,
+  Eye,
+  EyeOff,
+  Key,
   Play,
   Save,
   Sliders,
@@ -19,7 +22,7 @@ import { formatarMoeda } from "../utils/formatters";
 interface GavetaGestorProps {
   aberto: boolean;
   onFechar: () => void;
-  onAplicarRegras: (config: ValidadoresConfig) => Promise<void>;
+  onAplicarRegras: (config: ValidadoresConfig, chave?: string) => Promise<void>;
   onSimularWhatIf: (config: ValidadoresConfig) => Promise<void>;
   carregando: boolean;
   comparativo: ComparativoRegras | null;
@@ -49,6 +52,29 @@ export function GavetaGestor({
   const [salvando, setSalvando] = useState(false);
   const [sucesso, setSucesso] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [chaveAdmin, setChaveAdmin] = useState<string>(() => {
+    try {
+      return typeof sessionStorage !== "undefined" ? sessionStorage.getItem("admin_api_key") ?? "" : "";
+    } catch {
+      return "";
+    }
+  });
+  const [mostrarChave, setMostrarChave] = useState(false);
+
+  const handleChaveChange = (valor: string) => {
+    setChaveAdmin(valor);
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        if (valor.trim()) {
+          sessionStorage.setItem("admin_api_key", valor.trim());
+        } else {
+          sessionStorage.removeItem("admin_api_key");
+        }
+      }
+    } catch {
+      // ignora restricoes de storage
+    }
+  };
 
   useEffect(() => {
     if (aberto) {
@@ -115,7 +141,7 @@ export function GavetaGestor({
     setSalvando(true);
     setErro(null);
     try {
-      await onAplicarRegras(config);
+      await onAplicarRegras(config, chaveAdmin.trim() || undefined);
       setSucesso(true);
       setTimeout(() => setSucesso(false), 3000);
     } catch (err: unknown) {
@@ -374,7 +400,41 @@ export function GavetaGestor({
           </div>
 
           {/* Rodapé com Botões de Ação */}
-          <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-2">
+          <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-3">
+            {/* Campo de Senha para Chave de Gestor */}
+            <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-1.5 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="chave-admin-input"
+                  className="text-xs font-semibold text-slate-700 flex items-center gap-1.5"
+                >
+                  <Key className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Chave de Administração (API Key)</span>
+                </label>
+                <span className="text-[10px] text-slate-400">Salva nesta sessão</span>
+              </div>
+              <div className="relative">
+                <input
+                  id="chave-admin-input"
+                  type={mostrarChave ? "text" : "password"}
+                  value={chaveAdmin}
+                  onChange={(e) => handleChaveChange(e.target.value)}
+                  placeholder="Informe a chave para salvar regras..."
+                  className="input-base text-xs pr-9 font-mono"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarChave(!mostrarChave)}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 transition-colors"
+                  title={mostrarChave ? "Ocultar chave" : "Exibir chave"}
+                  tabIndex={-1}
+                >
+                  {mostrarChave ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
             {erro && (
               <div className="p-3 bg-rose-50 text-rose-700 text-xs border border-rose-200 rounded-lg flex items-center justify-between">
                 <span>{erro}</span>

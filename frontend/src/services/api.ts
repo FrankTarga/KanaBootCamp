@@ -203,7 +203,10 @@ export async function salvarValidadores(
     return { dados: validadoresEmMemoria, fonte: "demo" };
   }
 
-  const chave = apiKey || (import.meta.env.VITE_ADMIN_API_KEY as string | undefined);
+  const chave =
+    apiKey ||
+    (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("admin_api_key") : null) ||
+    (import.meta.env.VITE_ADMIN_API_KEY as string | undefined);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
