@@ -7,7 +7,7 @@ import { StatusApi } from "./components/StatusApi";
 import { TabelaRecebiveis } from "./components/TabelaRecebiveis";
 import { GavetaGestor } from "./components/GavetaGestor";
 import { LoginScreen, type Persona } from "./components/LoginScreen";
-import { validarLote, salvarValidadores, simularLoteLocal, obterHealth } from "./services/api";
+import { validarLote, salvarValidadores, simularLoteLocal, obterHealth, sessaoAtual } from "./services/api";
 import { formatarMoedaCompacta } from "./utils/formatters";
 import type { BatchValidationResponse, ComparativoRegras, FonteDados, ModoValidacao, ValidadoresConfig } from "./types/api";
 
@@ -17,24 +17,34 @@ const telaDoEndereco = (): Tela => {
   return TELAS.includes(h) ? h : "envio";
 };
 
-const personaSalva = (): Persona | null => {
+const CHAVE_TOKEN = "antecipe_token";
+const tokenSalvo = (): string | null => {
   try {
-    return JSON.parse(localStorage.getItem("antecipe_persona") ?? "null");
+    return localStorage.getItem(CHAVE_TOKEN);
   } catch {
     return null;
   }
 };
 
 export default function App() {
-  // Perfil da demonstração (cedente ou gestor); sobrevive ao F5
-  const [persona, setPersonaEstado] = useState<Persona | null>(personaSalva);
+  // Sessão do portal: só o token fica no navegador; o perfil sempre vem do servidor (GET /auth/me)
+  const [persona, setPersonaEstado] = useState<Persona | null>(null);
+  const [conferindoSessao, setConferindoSessao] = useState<boolean>(() => !!tokenSalvo());
   const setPersona = (p: Persona | null) => {
     try {
-      if (p) localStorage.setItem("antecipe_persona", JSON.stringify(p));
-      else localStorage.removeItem("antecipe_persona");
-    } catch { /* navegador sem storage: só não lembra o perfil */ }
+      if (p) localStorage.setItem(CHAVE_TOKEN, p.token);
+      else localStorage.removeItem(CHAVE_TOKEN);
+    } catch { /* navegador sem storage: só não lembra a sessão no F5 */ }
     setPersonaEstado(p);
   };
+  useEffect(() => {
+    const token = tokenSalvo();
+    if (!token) return;
+    sessaoAtual(token)
+      .then(setPersonaEstado)
+      .catch(() => setPersona(null)) // token forjado, vencido ou de outro segredo: volta pro login
+      .finally(() => setConferindoSessao(false));
+  }, []);
 
   // Parâmetros da operação
   const [dataBase, setDataBase] = useState<string>("22/10/2026");
@@ -148,6 +158,7 @@ export default function App() {
   const demo = fonteDados === "demo";
   const motorDesligado = !!arquivoAtual && demo; // enviou arquivo, mas a API não respondeu: números do lote de demonstração
 
+  if (conferindoSessao) return <div className="min-h-screen bg-creme" aria-busy="true" />;
   if (!persona) {
     return <LoginScreen onLogin={(p) => { setPersona(p); setDrawerGestorAberto(p.role === "GESTOR"); }} />;
   }

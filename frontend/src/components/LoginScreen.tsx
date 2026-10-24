@@ -1,48 +1,49 @@
 import { useState, type FormEvent } from "react";
-import { AlertCircle, ArrowRight, Building2, Loader2, Lock, SlidersHorizontal } from "lucide-react";
+import { AlertCircle, Building2, Loader2, Lock, SlidersHorizontal } from "lucide-react";
 import { Marca } from "./MenuLateral";
-import { entrar } from "../services/api";
+import { entrar, type Sessao } from "../services/api";
 
-// O formulário valida no servidor (POST /auth/login, tabela usuarios). Os atalhos de perfil só escolhem a visão.
-// A proteção real das regras continua sendo a X-API-Key do PUT /validators.
-export type Persona = { nome: string; cargo: string; role: "CEDENTE" | "GESTOR" };
+// Só entra com e-mail e senha validados no servidor (POST /auth/login); o perfil vem do banco, com token assinado.
+// A proteção das regras continua sendo a X-API-Key do PUT /validators.
+export type Persona = Sessao;
 
-export const PERSONAS: Record<Persona["role"], Persona> = {
-  CEDENTE: { nome: "Metalúrgica Silva LTDA", cargo: "Empresa cedente", role: "CEDENTE" },
-  GESTOR: { nome: "Gestão do FIDC", cargo: "Gestor do fundo", role: "GESTOR" },
-};
+// E-mails padrão do backend (CEDENTE_EMAIL / BANCA_EMAIL); escolher o perfil só preenche o e-mail, a senha é sempre exigida
+const PERFIS = {
+  CEDENTE: { titulo: "Empresa (cedente)", dica: "Enviar notas e ver quanto recebe", email: "empresa@antecipe.com.br", Icone: Building2 },
+  GESTOR: { titulo: "Gestor do fundo", dica: "Editar as regras e simular o impacto", email: "banca@antecipe.com.br", Icone: SlidersHorizontal },
+} as const;
 
 export function LoginScreen({ onLogin }: { onLogin: (p: Persona) => void }) {
-  const [email, setEmail] = useState("banca@antecipe.com.br");
+  const [perfil, setPerfil] = useState<Persona["role"]>("CEDENTE");
+  const [email, setEmail] = useState<string>(PERFIS.CEDENTE.email);
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
+
+  const escolher = (role: Persona["role"]) => {
+    setPerfil(role);
+    setEmail(PERFIS[role].email);
+    setSenha("");
+    setErro(null);
+  };
 
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
     setErro(null);
     setCarregando(true);
     try {
-      const { nome, cargo, role } = await entrar(email, senha);
-      onLogin({ nome, cargo, role });
+      const sessao = await entrar(email, senha);
+      if (sessao.role !== perfil) {
+        setErro(`Esta conta é de ${PERFIS[sessao.role].titulo.toLowerCase()}. Escolha esse perfil para entrar.`);
+        return;
+      }
+      onLogin(sessao);
     } catch (err: unknown) {
       setErro(err instanceof Error ? err.message : "Não foi possível entrar.");
     } finally {
       setCarregando(false);
     }
   };
-
-  const atalho = (role: Persona["role"], titulo: string, dica: string, Icone: typeof Building2) => (
-    <button type="button" onClick={() => onLogin(PERSONAS[role])}
-      className="group flex w-full items-center gap-3 rounded-xl border border-creme-linha bg-creme-claro p-4 text-left transition-colors hover:border-emerald-400 hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
-      <span className="rounded-lg bg-emerald-100 p-2 text-emerald-700"><Icone className="h-5 w-5" /></span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-floresta">{titulo}</span>
-        <span className="block text-xs text-slate-500">{dica}</span>
-      </span>
-      <ArrowRight className="h-4 w-4 text-emerald-600 transition-transform group-hover:translate-x-1" />
-    </button>
-  );
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-creme p-4 font-sans">
@@ -61,17 +62,29 @@ export function LoginScreen({ onLogin }: { onLogin: (p: Persona) => void }) {
         <div className="flex flex-col justify-center gap-5 p-8">
           <div>
             <h2 className="font-display text-xl font-semibold text-floresta">Acessar o portal</h2>
-            <p className="mt-1 text-sm text-slate-500">Escolha um perfil para entrar direto:</p>
+            <p className="mt-1 text-sm text-slate-500">Escolha como quer entrar e digite a senha.</p>
           </div>
 
-          <div className="flex flex-col gap-3">
-            {atalho("CEDENTE", "Entrar como empresa (cedente)", "Enviar notas e ver quanto recebe", Building2)}
-            {atalho("GESTOR", "Entrar como gestor do fundo", "Editar as regras e simular o impacto", SlidersHorizontal)}
-          </div>
-
-          <div className="flex items-center gap-3 text-xs text-slate-400">
-            <span className="h-px flex-1 bg-creme-linha" /> ou com e-mail <span className="h-px flex-1 bg-creme-linha" />
-          </div>
+          <fieldset className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <legend className="sr-only">Perfil de acesso</legend>
+            {(Object.keys(PERFIS) as Persona["role"][]).map((role) => {
+              const { titulo, dica, Icone } = PERFIS[role];
+              const ativo = perfil === role;
+              return (
+                <label key={role}
+                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-broto ${
+                    ativo ? "border-emerald-500 bg-emerald-50" : "border-creme-linha bg-creme-claro hover:border-emerald-300"
+                  }`}>
+                  <input type="radio" name="perfil" value={role} checked={ativo} onChange={() => escolher(role)} className="sr-only" />
+                  <span className={`rounded-lg p-2 ${ativo ? "bg-emerald-600 text-white" : "bg-emerald-100 text-emerald-700"}`}><Icone className="h-5 w-5" /></span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-floresta">{titulo}</span>
+                    <span className="block text-xs text-slate-500">{dica}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
 
           <form onSubmit={enviar} className="flex flex-col gap-3">
             {erro && (
@@ -91,7 +104,7 @@ export function LoginScreen({ onLogin }: { onLogin: (p: Persona) => void }) {
             </label>
             <button type="submit" disabled={carregando}
               className="flex items-center justify-center gap-2 rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
-              {carregando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} {carregando ? "Entrando..." : "Entrar"}
+              {carregando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} {carregando ? "Entrando..." : `Entrar como ${PERFIS[perfil].titulo.toLowerCase()}`}
             </button>
           </form>
         </div>

@@ -171,12 +171,20 @@ export async function obterHealth(): Promise<{ dados: HealthResponse; fonte: Fon
   }
 }
 
-export async function entrar(email: string, senha: string) {
-  const res = await requisitar<{ email: string; nome: string; cargo: string; role: "CEDENTE" | "GESTOR" }>("/auth/login", {
+export type Sessao = { email: string; nome: string; cargo: string; role: "CEDENTE" | "GESTOR"; token: string };
+
+export async function entrar(email: string, senha: string): Promise<Sessao> {
+  const res = await requisitar<Sessao>("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, senha }),
   });
+  return res.dados;
+}
+
+/** Confere no servidor se o token salvo ainda vale (assinatura e validade); lança ApiError 401 se não. */
+export async function sessaoAtual(token: string): Promise<Sessao> {
+  const res = await requisitar<Sessao>("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
   return res.dados;
 }
 
