@@ -43,5 +43,40 @@ def test_erro_repetido_na_mesma_nota_conta_uma_vez():
 
 def test_lote_sem_recusas():
     r = analisar_recusas([nota("APROVADA", 10.0, 9.9)])
-    assert r == {"qtd_recusadas": 0, "valor_recusado": 0.0, "qtd_com_mais_de_um_erro": 0,
-                 "pct_com_mais_de_um_erro": 0.0, "motivos": []}
+    assert (r["qtd_notas"], r["qtd_recusadas"], r["pct_recusadas"], r["motivos"]) == (1, 0, 0.0, [])
+    assert r["grupos"] == {"um_problema": [],
+                           "mais_de_um_problema": {"qtd": 0, "valor": 0.0, "pct_das_recusadas": 0.0, "subgrupos": []}}
+
+
+def test_grupos_somam_100_e_abrem_por_quantidade_e_combinacao():
+    itens = [nota("APROVADA", 1.0, 1.0)] + [
+        nota("RECUSADA", 10.0, 9.0, "TIPO_RECEBIVEL"),
+        nota("RECUSADA", 10.0, 9.0, "TIPO_RECEBIVEL"),
+        nota("RECUSADA", 10.0, 9.0, "FRAUDE_OUTRO_FUNDO"),
+        nota("RECUSADA", 10.0, 9.0, "PRAZO_MAXIMO", "TIPO_RECEBIVEL"),
+        nota("RECUSADA", 10.0, 9.0, "TIPO_RECEBIVEL", "PRAZO_MAXIMO"),  # mesma combinação, outra ordem
+        nota("RECUSADA", 10.0, 9.0, "VALOR_MINIMO", "TIPO_RECEBIVEL"),
+        nota("RECUSADA", 10.0, 9.0, "SITUACAO_CADASTRAL_SACADO", "TIPO_RECEBIVEL", "PRAZO_MAXIMO"),
+    ]
+    r = analisar_recusas(itens)
+    g = r["grupos"]
+    assert r["pct_recusadas"] == 87.5
+    assert [(c["codigo"], c["qtd"], c["pct_das_recusadas"]) for c in g["um_problema"]] == [
+        ("TIPO_RECEBIVEL", 2, 28.6), ("FRAUDE_OUTRO_FUNDO", 1, 14.3)]
+    multi = g["mais_de_um_problema"]
+    assert (multi["qtd"], multi["pct_das_recusadas"]) == (4, 57.1)
+    assert round(sum(c["pct_das_recusadas"] for c in g["um_problema"]) + multi["pct_das_recusadas"], 1) == 100.0
+
+    dois, tres = multi["subgrupos"]
+    assert (dois["qtd_problemas"], dois["qtd"], dois["pct_do_grupo"]) == (2, 3, 75.0)
+    assert (tres["qtd_problemas"], tres["qtd"], tres["pct_do_grupo"]) == (3, 1, 25.0)
+    assert [(c["codigos"], c["qtd"], c["pct_do_grupo"]) for c in dois["combinacoes"]] == [
+        (["PRAZO_MAXIMO", "TIPO_RECEBIVEL"], 2, 50.0), (["TIPO_RECEBIVEL", "VALOR_MINIMO"], 1, 25.0)]
+    todas = [c["pct_do_grupo"] for s in multi["subgrupos"] for c in s["combinacoes"]]
+    assert round(sum(todas), 1) == 100.0  # combinações somam 100% dentro do grupo de múltiplos
+
+
+def test_percentuais_fecham_em_100_com_arredondamento():
+    from app.analise_recusas import percentuais
+    assert percentuais([1, 1, 1], 3) == [33.4, 33.3, 33.3]
+    assert round(sum(percentuais([7, 5, 3, 2, 1, 1, 1], 20)), 1) == 100.0
