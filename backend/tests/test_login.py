@@ -166,3 +166,18 @@ def test_sem_sessao_segredo_ninguem_forja_token(pasta_dados, monkeypatch, valor)
         token = login(c, EMAIL, SENHA).json()["token"]
         assert c.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
+
+def test_tirar_a_senha_do_env_desativa_a_conta(client, pasta_dados, monkeypatch):
+    """Sem CEDENTE_SENHA no boot seguinte, a senha antiga para de valer nos dois bancos e o histórico fica."""
+    token = login(client, "empresa@antecipe.com.br", SENHA_CEDENTE).json()["token"]
+    lote = b"DOC_CEDENTE;DOC_SACADO;NU_DOCUMENTO;TIPO_RECEBIVEL;VALOR_NOMINAL;DATA_VENCIMENTO_ORIGINAL\n1;2;3;Duplicata;1;01/01/2027\n"
+    r = client.post("/api/v1/batches/validate", files={"file": ("l.csv", lote, "text/csv")},
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200  # lote ligado ao cedente (chave estrangeira em historico.lotes)
+
+    monkeypatch.delenv("CEDENTE_SENHA")
+    with TestClient(app) as c:
+        assert login(c, "empresa@antecipe.com.br", SENHA_CEDENTE).status_code == 401
+        assert login(c, EMAIL, SENHA).status_code == 200
+    with sqlite3.connect(pasta_dados / "historico.db") as conn:
+        assert conn.execute("SELECT COUNT(*) FROM lotes WHERE usuario_id IS NOT NULL").fetchone()[0] == 1

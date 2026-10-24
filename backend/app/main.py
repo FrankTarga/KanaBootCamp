@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import os
+import secrets
 import threading
 import time
 import uuid
@@ -196,14 +197,15 @@ async def lifespan(app: FastAPI):
         ("BANCA_SENHA", settings.banca_email, settings.banca_senha, "Banca avaliadora", "Gestor do fundo", "GESTOR"),
         ("CEDENTE_SENHA", settings.cedente_email, settings.cedente_senha, "Metalúrgica Silva LTDA", "Empresa cedente", "CEDENTE"),
     ):
-        if senha:
-            app.state.historico.salvar_usuario(email, senha, nome, cargo, role)
-            try:
-                salvar_usuario_acid(email, senha, nome, cargo, role)
-            except Exception:
-                logger.exception("falha ao salvar usuario no banco ACID: %s", email)
-        else:
-            logger.warning("%s não definida: usuário %s não foi criado", variavel, role)
+        if not senha:
+            # a senha antiga (vazada ou não) para de valer; o usuário continua no banco por causa do histórico
+            logger.warning("%s não definida: usuário %s desativado", variavel, role)
+            senha = secrets.token_urlsafe(32)
+        app.state.historico.salvar_usuario(email, senha, nome, cargo, role)
+        try:
+            salvar_usuario_acid(email, senha, nome, cargo, role)
+        except Exception:
+            logger.exception("falha ao salvar usuario no banco ACID: %s", email)
     if not settings.admin_api_key:
         logger.warning("ADMIN_API_KEY não definida: PUT /validators fica bloqueado")
     logger.info("situacao_cadastral fonte=%s", settings.receita_api_url or settings.cadastro_path)

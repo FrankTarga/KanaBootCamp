@@ -51,7 +51,7 @@ Se o Notepad perguntar se quer criar o arquivo, clique em **Sim**. Apague o que 
 # Chave que o gestor digita na gaveta para salvar regras (header X-API-Key)
 ADMIN_API_KEY=<chave do gestor, combinada com a equipe>
 
-# Login do portal: usuários criados no startup; sem a senha, aquele usuário não é criado
+# Login do portal: usuários criados no startup; sem a senha, aquele usuário fica desativado
 BANCA_EMAIL=banca@antecipe.com.br
 BANCA_SENHA=<senha do gestor, combinada com a equipe>
 CEDENTE_EMAIL=empresa@antecipe.com.br
