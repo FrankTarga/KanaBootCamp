@@ -197,6 +197,12 @@ Entregas: `RuleEngine.validar_carteira`, `POST /api/v1/portfolio/validate`, a CL
 
 **Mock da Receita:** responde ATIVA para todo CNPJ com dígito verificador válido, exceto os da lista de irregulares, e 404 para CNPJ inválido. Assim, um CSV com clientes novos não é recusado em massa, e o fail-closed da API continua valendo quando o mock cai ou responde erro.
 
+### Fonte da situação cadastral (`SITUACAO_FONTE`)
+
+A organização publicou depois o `cnpj_situacao_mock.csv` (3.041 CNPJs, 42 não-ATIVA), mas ele **contradiz o gabarito**: não há nenhum CNPJ irregular em comum. Dos 87 do gabarito, 55 aparecem como ATIVA no arquivo e 32 estão ausentes; e o arquivo barraria 694 linhas que o gabarito aprova. Nenhuma leitura alternativa (cedente, raiz, ausente = irregular) concilia os dois. A documentação de banking da Kanastra (banking-docs) cobre boletos, CNAB, nota comercial, contas e PIX, e não tem consulta de situação cadastral.
+
+Decisão do time: o mock-receita escolhe a fonte por `SITUACAO_FONTE`, com `gabarito` como padrão (100% de igualdade), `kanastra` (arquivo oficial; CNPJ ausente = ATIVA) e `formato` (só a checagem do CNPJ, como sugeriu o tech lead). O mock falha ao subir se a fonte for inválida ou se o arquivo dela faltar, para não aprovar todo mundo em silêncio. A API não muda: ela continua consultando o mock e continua fail-closed se ele cair. Evidência no Docker, com as 100.554 linhas: `gabarito` 100.554 iguais, `kanastra` 97.460, `formato` 98.237, e em todas as fontes as outras regras batem em 100%.
+
 ### Painel de recusas (`analise_recusas`)
 
 A análise descritiva das recusas é do Estatístico (`backend/app/analise_recusas.py`, contrato em `docs/analise-recusas.md`). O back-end a expõe como o campo `analise_recusas` na resposta de `POST /batches/validate`, para a tela receber tudo numa chamada só. O campo vale nos modos lote e carteira e no what-if do gestor (`validadores_override`).

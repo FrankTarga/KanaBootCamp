@@ -53,6 +53,7 @@ Docs interativas: http://localhost:8000/docs
 | `MAX_LINHAS_LOTE` | 10000 | máximo de notas por lote |
 | `RECEITA_API_URL` | — | base da consulta de CNPJ (ex.: `http://127.0.0.1:8001/api/cnpj/v1` do mock ou `https://brasilapi.com.br/api/cnpj/v1`); sem ela, usa `situacao_cadastral.json` |
 | `RECEITA_TIMEOUT_S` | 2 | timeout de cada consulta |
+| `SITUACAO_FONTE` (no mock-receita) | `gabarito` | `gabarito`, `kanastra` (CSV oficial) ou `formato` (só checagem do CNPJ); ver README principal |
 | `ADMIN_API_KEY` | — | chave exigida no header `X-API-Key` do `PUT /validators`; sem ela o `PUT` fica bloqueado (403) |
 | `LOG_LEVEL` | INFO | nível de log |
 

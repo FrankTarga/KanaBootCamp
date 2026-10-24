@@ -9,7 +9,7 @@ A empresa (cedente) envia um lote CSV de notas e recebe na hora quanto vai receb
 Com Docker (Windows, Mac ou a VPS Linux), na raiz do repositório:
 
 ```bash
-cp .env.example .env          # PowerShell: Copy-Item .env.example .env  (troque a ADMIN_API_KEY)
+cp .env.example .env          # opcional; PowerShell: Copy-Item .env.example .env  (troque a ADMIN_API_KEY)
 docker compose up -d --build  # sobe mock-receita, backend e frontend; ~1 min na primeira vez
 docker compose ps             # backend e mock-receita devem ficar "healthy"
 ```
@@ -17,7 +17,7 @@ docker compose ps             # backend e mock-receita devem ficar "healthy"
 - Front-end: http://localhost:5173
 - API: http://localhost:8000/api/v1 · docs interativas em http://localhost:8000/docs
 - O mock da Receita só fica acessível na rede interna do compose; a API o consulta em `http://mock-receita:8001`.
-- Variáveis: `ADMIN_API_KEY` (obrigatória, no `.env`); as demais já vêm no `docker-compose.yml` (ver `backend/README.md`).
+- Variáveis (no `.env`, todas opcionais): `ADMIN_API_KEY`, que sem ela deixa tudo funcionando e só o `PUT` das regras responde 403; e `SITUACAO_FONTE` (`gabarito`, o padrão, `kanastra` ou `formato`; ver *Situação cadastral*).
 
 Sem Docker (PowerShell, Windows), um terminal por serviço:
 
@@ -118,6 +118,18 @@ Diferenças em relação ao modo lote:
 Quando usar cada modo: **lote** é a empresa oferecendo notas novas ao fundo (confere duplicidade contra o estoque, otimiza a ordem e calcula a concentração contra a carteira atual); **carteira** é conferir um arquivo inteiro de títulos, que é como o gabarito oficial foi gerado.
 
 `tests/test_conformidade_gabarito.py` compara as 100.554 linhas com o gabarito: **100% idênticas**, inclusive pelo endpoint ao vivo com o mock da Receita. A situação cadastral vem de `backend/data/situacao_cadastral.json`, gerado por `backend/gerar_situacao_cadastral.py` a partir do próprio gabarito (os 87 CNPJs barrados por `SITUACAO_CADASTRAL_SACADO`). Foi uma decisão do time: o kit não trouxe a fonte da organização, e os CNPJs do dataset são sintéticos, então a Receita real diverge. O gabarito não diz qual é a situação, só que não é ATIVA; por isso o rótulo é `IRREGULAR`. O mock responde ATIVA para qualquer outro CNPJ com dígito verificador válido (é o que o gabarito implica) e 404 para CNPJ inválido.
+
+## Situação cadastral: três fontes, uma escolha
+
+A regra `SITUACAO_CADASTRAL_SACADO` precisa saber se o CNPJ do sacado está ATIVA. Temos três fontes, e elas **se contradizem**, então o mock da Receita deixa escolher por `SITUACAO_FONTE` sem mudar código:
+
+| `SITUACAO_FONTE` | de onde vem | iguais ao gabarito (100.554 linhas) |
+|---|---|---|
+| `gabarito` (padrão) | `backend/data/situacao_cadastral.json`: os 87 CNPJs barrados por situação no `resultado_esperado_100k.json` | **100.554** |
+| `kanastra` | `backend/data/cnpj_situacao_mock.csv`, publicado pela organização no Notion (42 não-ATIVA). CNPJ ausente = ATIVA | 97.460 |
+| `formato` | nenhuma restrição; vale só a checagem do CNPJ (14 dígitos + dígito verificador, em `CNPJ_SACADO_VALIDO`) | 98.237 |
+
+O arquivo oficial e o gabarito não têm **nenhum** CNPJ irregular em comum. Dos 87 irregulares do gabarito, 55 aparecem como ATIVA no arquivo e 32 nem estão nele. Dos 42 não-ATIVA do arquivo, o gabarito aprova as notas de 694 linhas. Em todas as fontes, as demais regras batem com o gabarito em 100%. O padrão é `gabarito` por decisão do time; o `GET /health` do mock mostra a fonte ativa.
 
 ## Diferenciais técnicos
 
