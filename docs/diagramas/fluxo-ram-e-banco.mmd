@@ -7,11 +7,13 @@ sequenceDiagram
     participant RAM as Memória RAM, consulta O(1)<br/>estoque de 100.554 notas + regras
     participant Receita as Mock da Receita<br/>(situação cadastral)
     participant DB as SQLite (historico.db)<br/>lotes, notas, usuários, regras
+    participant ACID as SQLite (antecipe_acid.db)<br/>simulações e notas compradas
 
-    Note over API,DB: 1. Servidor liga
+    Note over API,ACID: 1. Servidor liga
     API->>RAM: lê estoque_antecipe.csv (~0,35 s) e indexa hashes e exposição por grupo
     API->>RAM: carrega validadores_antecipe.json (regras e taxa de 2% a.m.)
     API->>DB: aplica migrações e cria os usuários do .env (senha em hash scrypt)
+    ACID->>RAM: notas já compradas (titulos_adquiridos) entram no estoque em memória
 
     Note over Empresa,DB: 2. Login
     Empresa->>Front: e-mail e senha
@@ -26,16 +28,25 @@ sequenceDiagram
     API->>RAM: regras, limite por grupo (Shadow Ledger), duplicidade e fraude, otimizador
     API->>Receita: situação cadastral de cada cliente (com cache, sem resposta = recusa)
     API->>DB: grava lote, notas e motivos numa transação só
+    API->>ACID: guarda o resultado como SIMULADO (lotes_operacoes)
     API-->>Front: aprovadas, recusadas com o que fazer, valor líquido
     Front-->>Empresa: Resumo, Estatística, Notas e Análise de perda
 
-    Note over Gestor,DB: 4. Regras sem reiniciar
+    Note over Empresa,ACID: 4. Contratar a antecipação (compra de verdade)
+    Empresa->>Front: Contratar e Confirmar contratação
+    Front->>API: POST /batches/{hash}/liquidate
+    API->>ACID: BEGIN IMMEDIATE, grava as aprovadas em titulos_adquiridos (chave única) e marca LIQUIDADO, COMMIT
+    API->>RAM: as notas compradas entram no estoque (write-through)
+    API-->>Front: comprovante, e a mesma nota enviada de novo vira "já comprada"
+
+    Note over Gestor,DB: 5. Regras sem reiniciar
     Gestor->>Front: muda regras e digita a chave do gestor
     Front->>API: PUT /validators (X-API-Key)
     API->>RAM: valida, grava o JSON em disco e troca as regras (versão + 1)
     API->>DB: registra quem mudou e a configuração nova (mudancas_regras)
+    API->>ACID: auditoria com a configuração anterior e a nova (auditoria_regras)
 
-    Note over Empresa,DB: 5. Histórico
+    Note over Empresa,DB: 6. Histórico
     Front->>API: GET /historico/lotes, /lotes/{id}, /notas
     API->>DB: gestor vê todos os envios, a empresa só os dela
     API-->>Front: envios antigos, notas e busca por número da nota

@@ -111,6 +111,7 @@ Os números abaixo valem com a taxa padrão de 2% ao mês e a data 22/10/2026. O
 ### Passo 8: Resumo
 - Deve mostrar **R$ 184,2 mil** na conta hoje, com **13 notas aprovadas de 22**.
 - O extrato é: valor enviado, menos o que ficou de fora, menos o custo da antecipação, igual ao que cai na conta.
+- Clique em **Contratar por R$ 184.221,52** e depois em **Confirmar contratação**. Aparece o comprovante "Antecipação contratada · 13 notas compradas pelo fundo". A partir daí essas notas são do fundo: enviar o mesmo arquivo de novo mostra todas como "já comprada".
 
 ### Passo 9: Estatística
 1. Clique em **Estatística**.
@@ -181,6 +182,7 @@ Achou algo errado? Anote o passo, o que fez, o que esperava e mande um print.
 | **Menu lateral** | navega entre as telas; mostra quanto cai na conta, quantas notas foram recusadas e se a análise está ligada |
 | **Enviar notas** | manda um arquivo, vários arquivos ou uma pasta. "Notas para antecipar" é o uso normal; "Carteira do fundo" analisa o estoque inteiro. Também dá para mudar a data, a taxa e ligar ou desligar o Otimizar |
 | **Resumo** | extrato de quanto cai na conta hoje, notas aprovadas, ganho do otimizador e alerta de fraude |
+| **Contratar** (no Resumo) | a compra de verdade: o fundo compra as notas aprovadas e mostra o comprovante |
 | **Estatística** | por que as notas foram recusadas (grupos que somam 100%, com quanto cada correção libera), liquidez, valor por problema e vencimentos |
 | **Análise de perda** | quanto custa esperar: digite um valor e um prazo e veja quanto recebe e quanto perde |
 | **Notas** | nota por nota, com busca, abas, explicação de cada recusa e as planilhas para baixar |
@@ -215,4 +217,5 @@ Abra http://localhost:5173. O login aceita qualquer senha e as telas usam o lote
 | `backend` não fica healthy | rode `docker compose logs backend --tail 30` e mande o print no grupo |
 | na VPS Linux, o log diz `unable to open database file` | o container não tem permissão de gravar na pasta. Na VPS: `sudo chown -R 1000:1000 backend/data` e depois `docker compose up -d` |
 | na VPS, o site não fala com a API | no `.env` da VPS, use `VITE_API_URL=http://IP-DA-VPS:8000/api/v1` e rode `docker compose up -d --build` |
-| quero zerar o histórico | `docker compose down`, apague os arquivos `backend\data\historico.db*` e rode o Passo 3 |
+| quero recomeçar do zero (envios e compras) | `docker compose down`, apague os arquivos `historico.db*` e `antecipe_acid.db*` em `backend\data` e rode o Passo 3 |
+| reenviei um lote e tudo aparece como "já comprada" | é o esperado depois de **Contratar**; para repetir a demonstração, recomece do zero (linha acima) |
