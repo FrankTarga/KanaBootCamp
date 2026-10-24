@@ -1,37 +1,37 @@
 {
   "meta": {
     "batch_hash_idempotencia": "6bfce72ef57546a450f02caf7cd82dcb2262b2a975db4b3946d4a725d59df0a0",
-    "tempo_processamento_ms": 2.54,
+    "tempo_processamento_ms": 3.25,
     "data_base_utilizada": "22/10/2026",
     "taxa_mensal_aplicada": 0.02,
     "otimizador_ativo": true,
-    "valor_liquido_sem_otimizador": 199343.36,
+    "valor_liquido_sem_otimizador": 184221.52,
     "ganho_otimizador_reais": 0.0,
     "qtd_notas_salvas_otimizador": 0
   },
   "resumo": {
     "total_notas": 22,
-    "qtd_aprovadas": 14,
-    "qtd_recusadas": 8,
+    "qtd_aprovadas": 13,
+    "qtd_recusadas": 9,
     "qtd_alertas_fraude": 0,
     "valor_bruto_total": 246625.73,
-    "valor_bruto_aprovado": 210661.83,
-    "valor_bruto_recusado": 35963.9,
-    "desagio_total": 11318.47,
-    "valor_liquido_receber": 199343.36,
-    "prazo_medio_ponderado_dias": 80.59,
+    "valor_bruto_aprovado": 194821.91,
+    "valor_bruto_recusado": 51803.82,
+    "desagio_total": 10600.39,
+    "valor_liquido_receber": 184221.52,
+    "prazo_medio_ponderado_dias": 81.62,
     "contagem_por_motivo": [
+      {
+        "codigo": "SITUACAO_CADASTRAL_SACADO",
+        "titulo_amigavel": "Cadastro do cliente irregular na Receita Federal",
+        "quantidade": 3,
+        "valor_impactado": 21239.92
+      },
       {
         "codigo": "PRAZO_MAXIMO",
         "titulo_amigavel": "Prazo de pagamento muito longo",
         "quantidade": 2,
         "valor_impactado": 9915.0
-      },
-      {
-        "codigo": "SITUACAO_CADASTRAL_SACADO",
-        "titulo_amigavel": "Cadastro do cliente irregular na Receita Federal",
-        "quantidade": 2,
-        "valor_impactado": 5400.0
       },
       {
         "codigo": "TIPO_RECEBIVEL",
@@ -304,10 +304,17 @@
       "prazo_dias": 68,
       "desagio_reais": 718.08,
       "valor_liquido": 15121.84,
-      "status": "APROVADA",
-      "severidade": "OK",
+      "status": "RECUSADA",
+      "severidade": "REGRA_NEGOCIO",
       "salva_pelo_otimizador": false,
-      "erros": []
+      "erros": [
+        {
+          "codigo": "SITUACAO_CADASTRAL_SACADO",
+          "titulo_amigavel": "Cadastro do cliente irregular na Receita Federal",
+          "mensagem_empresa": "O CNPJ do cliente SUPERMERCADOS JUNDIAÍ LTDA (09.418.192/0001-25) aparece com situação cadastral \"IRREGULAR\" na Receita Federal. O fundo só compra notas de clientes com situação ATIVA.",
+          "acao_recomendada": "Peça ao cliente para regularizar o CNPJ na Receita Federal. Enquanto isso, antecipe notas de outros clientes."
+        }
+      ]
     },
     {
       "linha_csv": 12,
@@ -360,7 +367,7 @@
         {
           "codigo": "SITUACAO_CADASTRAL_SACADO",
           "titulo_amigavel": "Cadastro do cliente irregular na Receita Federal",
-          "mensagem_empresa": "O CNPJ do cliente RODRIGUES & BERTOLINI COMÉRCIO LTDA (03.601.302/0001-03) aparece com situação cadastral \"BAIXADA\" na Receita Federal. O fundo só compra notas de clientes com situação ATIVA.",
+          "mensagem_empresa": "O CNPJ do cliente RODRIGUES & BERTOLINI COMÉRCIO LTDA (03.601.302/0001-03) aparece com situação cadastral \"IRREGULAR\" na Receita Federal. O fundo só compra notas de clientes com situação ATIVA.",
           "acao_recomendada": "Peça ao cliente para regularizar o CNPJ na Receita Federal. Enquanto isso, antecipe notas de outros clientes."
         }
       ]
@@ -479,7 +486,7 @@
         {
           "codigo": "CONCENTRACAO_MAXIMA_SACADO",
           "titulo_amigavel": "Limite de crédito do cliente atingido",
-          "mensagem_empresa": "Com esta nota de R$ 15.000,00, o cliente SERRALHERIA VIOLETA S.A. (grupo econômico de CNPJ raiz 58.206.002) passaria a somar R$ 6.649.253,50 em títulos na carteira do fundo, o equivalente a 12,49% da carteira, acima do limite de 10,00% por cliente (hoje, R$ 5.323.735,17). Não há mais espaço disponível no momento.",
+          "mensagem_empresa": "Com esta nota de R$ 15.000,00, o cliente SERRALHERIA VIOLETA S.A. (somando matriz e filiais, todos os CNPJs que começam com 58.206.002) passaria a somar R$ 6.649.253,50 em títulos na carteira do fundo, o equivalente a 12,49% da carteira, acima do limite de 10,00% por cliente (hoje, R$ 5.322.151,18). Não há mais espaço disponível no momento.",
           "acao_recomendada": "Substitua esta nota por recebíveis de outros clientes ou aguarde a liquidação dos títulos atuais deste cliente para liberar limite."
         }
       ]
@@ -513,8 +520,8 @@
         {
           "codigo": "SITUACAO_CADASTRAL_SACADO",
           "titulo_amigavel": "Cadastro do cliente irregular na Receita Federal",
-          "mensagem_empresa": "O CNPJ do cliente COMERCIAL BOA VISTA LTDA (12.345.678/0001-00) não foi encontrado na base da Receita Federal. O fundo só compra notas de clientes com cadastro confirmado.",
-          "acao_recomendada": "Confira o CNPJ do cliente na nota fiscal e reenvie a nota com o documento correto."
+          "mensagem_empresa": "Não foi possível consultar o cliente COMERCIAL BOA VISTA LTDA (12.345.678/0001-00) na Receita Federal porque o CNPJ informado está errado, e sem essa consulta o fundo não pode comprar a nota.",
+          "acao_recomendada": "Corrija o CNPJ do cliente na planilha (veja o erro de documento desta mesma nota) e envie de novo."
         }
       ]
     },
