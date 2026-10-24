@@ -6,8 +6,7 @@ Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
 ================================================================================
 PROMPT
 ================================================================================
-Achei extremamente parecido com o site da Kanastra, tem que ser mais original. Os tons estão
-ótimos. Tire a página de rolar, crie um menu lateral com a estatística nele, e o fundo poderia ser
+O layout tem que ser mais original. Os tons estão ótimos. Tire a página de rolar, crie um menu lateral com a estatística nele, e o fundo poderia ser
 interativo.
 
 ================================================================================

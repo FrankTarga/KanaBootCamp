@@ -1,20 +1,19 @@
 PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
-Registro de Prompt e Resposta - Redesign com a paleta inspirada na Kanastra e envio por pasta
+Registro de Prompt e Resposta - Redesign com a paleta de cores da Kanastra e envio por pasta
 Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
 Área: Front-end / Design
 
 ================================================================================
 PROMPT
 ================================================================================
-Use o site da Kanastra como base de cores e design e troque os tons do vídeo "purple-desert"
-para os da Kanastra. Primeira tela "arraste a pasta de notas", segunda com os números, terceira com
+Use a paleta de cores da Kanastra e troque os tons do vídeo "purple-desert" para essa paleta. Primeira tela "arraste a pasta de notas", segunda com os números, terceira com
 gráficos. Mexa só no front; se for mudar a lógica, não altere.
 
 ================================================================================
 RESPOSTA (SUCINTA)
 ================================================================================
-- Paleta trocada direto no Tailwind (verde-floresta, creme quente, verde vivo), então tabela e gaveta
-  mudaram junto. Não foram usados logo nem fotos da Kanastra, só a paleta.
+- Paleta de cores da Kanastra aplicada direto no Tailwind (verde-floresta, creme quente, verde vivo),
+  então tabela e gaveta mudaram junto. Da empresa foi usada só a paleta de cores.
 - Vídeo do deserto recolorido de roxo para verde (21,7 MB -> 1,8 MB, sem áudio).
 - Envio aceita uma PASTA inteira (com subpastas) ou vários CSVs e junta tudo num lote só, avisando se
   algum arquivo tiver colunas diferentes.

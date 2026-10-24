@@ -18,7 +18,7 @@ Histórico das interações com IA durante o hackathon (requisito de submissão)
 | `2026-10-24_dev3-estatistica_03-analise-das-notas-recusadas.txt` | Dev 3 (Estatística) | análise descritiva das recusas e grupos que somam 100% (maiores restos, "mais de um problema") |
 | `2026-10-24_dev3-estatistica_04-situacao-cadastral-e-banco-de-dados.txt` | Dev 3 (Estatística) | cnpj_situacao_mock.csv contra o gabarito e recomendação de SQLite para o histórico |
 | `2026-10-24_dev3-estatistica_05-analise-de-perda-por-prazo.txt` | Dev 3 (Estatística) | fórmulas e números conferidos da Análise de perda (custo do prazo) |
-| `2026-10-24_dev3-frontend_01-redesign-paleta-e-pasta-de-notas.txt` | Dev 3 (Front/Design) | paleta, vídeo recolorido, envio por pasta e aviso de modo demonstração |
+| `2026-10-24_dev3-frontend_01-redesign-paleta-e-pasta-de-notas.txt` | Dev 3 (Front/Design) | paleta de cores da Kanastra, vídeo recolorido, envio por pasta e aviso de modo demonstração |
 | `2026-10-24_dev3-frontend_02-menu-lateral-e-fundo-interativo.txt` | Dev 3 (Front/Design) | layout original com menu lateral, telas separadas e fundo interativo |
 | `2026-10-24_dev3-frontend_03-tela-analise-de-perda.txt` | Dev 3 (Front/Design) | tela Análise de perda com valor digitado e gráfico em reais |
 | `2026-10-24_dev3-frontend_04-historico-sqlite-no-front.txt` | Dev 3 (Front/Design) | tela Histórico, notas de envios antigos, busca de nota e chave do gestor |
