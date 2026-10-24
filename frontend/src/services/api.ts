@@ -244,10 +244,14 @@ export async function validarLote(arquivo: File | null, opcoes: OpcoesValidacao 
   if (opcoes.modo && opcoes.modo !== "lote") form.append("modo", opcoes.modo);
 
   try {
-    const { dados, resposta } = await requisitar<BatchValidationResponse>("/batches/validate", {
-      method: "POST",
-      body: form,
-    });
+    const { dados, resposta } = await requisitar<BatchValidationResponse>(
+      "/batches/validate",
+      {
+        method: "POST",
+        body: form,
+      },
+      120_000,
+    );
     return {
       dados,
       fonte: "api",
