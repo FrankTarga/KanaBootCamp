@@ -284,6 +284,28 @@ def _registrar_historico(request: Request, metodo: str, **campos: Any) -> None:
         logger.exception("request_id=%s falha ao gravar histórico (%s)", request.state.request_id, metodo)
 
 
+def _usuario(request: Request, authorization: str | None) -> dict[str, Any] | None:
+    """Usuário do token Bearer, ou None (sem header, token inválido ou expirado)."""
+    esquema, _, token = (authorization or "").partition(" ")
+    return ler_token(request.app.state.settings.sessao_segredo, token) if esquema.lower() == "bearer" else None
+
+
+def _exigir_usuario(request: Request, authorization: str | None) -> dict[str, Any]:
+    usuario = _usuario(request, authorization)
+    if usuario is None:
+        raise ErroEntrada("SESSAO_INVALIDA", "Sessão ausente, inválida ou expirada; entre de novo.", 401)
+    return usuario
+
+
+def _id_usuario(usuario: dict[str, Any] | None) -> int | None:
+    return usuario.get("id") if usuario else None
+
+
+def _escopo(usuario: dict[str, Any]) -> int | None:
+    """Gestor vê tudo (None); cedente só o que enviou. Token antigo sem id → -1 = não vê nada."""
+    return None if usuario.get("role") == "GESTOR" else int(usuario.get("id") or -1)
+
+
 def _parse_data_base(valor: str | None) -> date | None:
     if valor is None or not valor.strip():
         return None
@@ -363,6 +385,7 @@ def atualizar_validadores(
     config: ValidadoresConfig,
     request: Request,
     x_api_key: str | None = Header(None, description="chave do gestor (env ADMIN_API_KEY)"),
+    authorization: str | None = Header(None, description="Bearer <token do login> (opcional: registra quem mudou)"),
 ) -> ValidadoresConfig:
     chave = request.app.state.settings.admin_api_key
     if not chave:
@@ -378,6 +401,7 @@ def atualizar_validadores(
             versao_config=engine.versao_config,
             regras_ativas=engine.regras_ativas_count(),
             config=aplicada.para_json(),
+            usuario_id=_id_usuario(_usuario(request, authorization)),
         )
         return aplicada
     except OSError:
@@ -398,11 +422,8 @@ def login(dados: LoginRequest, request: Request) -> UsuarioLogado:
 
 @router.get("/auth/me", response_model=UsuarioLogado)
 def usuario_atual(request: Request, authorization: str | None = Header(None, description="Bearer <token do login>")) -> UsuarioLogado:
-    esquema, _, token = (authorization or "").partition(" ")
-    usuario = ler_token(request.app.state.settings.sessao_segredo, token) if esquema.lower() == "bearer" else None
-    if usuario is None:
-        raise ErroEntrada("SESSAO_INVALIDA", "Sessão ausente, inválida ou expirada; entre de novo.", 401)
-    return UsuarioLogado(**usuario, token=token)
+    usuario = _exigir_usuario(request, authorization)
+    return UsuarioLogado(**usuario, token=authorization.partition(" ")[2])
 
 
 @router.post("/batches/validate", response_model=BatchValidationResponse)
@@ -414,9 +435,12 @@ def validar_lote(
     otimizar_lote: str | None = Form(None, description="true (padrão) ou false"),
     validadores_override: str | None = Form(None, description="JSON de validadores para simulação what-if (não persiste)"),
     modo: str | None = Form(None, description="lote (padrão: notas novas contra o estoque) ou carteira (regras do gabarito oficial)"),
+    authorization: str | None = Header(None, description="Bearer <token do login> (opcional: liga o lote ao usuário no histórico)"),
 ) -> Response:
     settings: Settings = request.app.state.settings
     engine = _engine(request)
+    # quem pediu agora, não quem gerou o cache: a repetição entra no histórico de quem a enviou
+    usuario_id = _id_usuario(_usuario(request, authorization))
 
     conteudo = file.file.read(settings.max_upload_bytes + 1)
     if len(conteudo) > settings.max_upload_bytes:
@@ -448,7 +472,9 @@ def validar_lote(
     em_cache = cache.obter(chave)
     if em_cache is not None:
         corpo, numeros = em_cache
-        _registrar_historico(request, "registrar_lote", chave_idempotencia=chave_hash, replay=True, **numeros)
+        _registrar_historico(
+            request, "registrar_lote", chave_idempotencia=chave_hash, replay=True, usuario_id=usuario_id, **numeros
+        )
         return Response(corpo, media_type="application/json", headers={"X-Idempotent-Replay": "true"})
 
     resultado = engine.validar_lote(conteudo, data, taxa, otimizar, override, modo_validacao)
@@ -476,6 +502,7 @@ def validar_lote(
         "registrar_lote",
         chave_idempotencia=chave_hash,
         replay=False,
+        usuario_id=usuario_id,
         itens=resultado.itens if modo_validacao == "lote" else None,  # carteira: só o resumo
         **numeros,
     )
@@ -516,9 +543,12 @@ def historico_lotes(
     request: Request,
     limite: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None, description="Bearer <token do login>"),
 ) -> PaginaHistoricoLotes:
-    """Lotes validados, do mais recente para o mais antigo (inclui repetições servidas pelo cache)."""
-    itens, total = request.app.state.historico.listar_lotes(limite, offset)
+    """Lotes validados, do mais recente para o mais antigo (inclui repetições servidas pelo cache).
+    Cedente vê só os lotes que enviou; gestor vê todos."""
+    usuario = _exigir_usuario(request, authorization)
+    itens, total = request.app.state.historico.listar_lotes(limite, offset, _escopo(usuario))
     return PaginaHistoricoLotes(total=total, limite=limite, offset=offset, itens=itens)
 
 
@@ -528,9 +558,11 @@ def historico_lote(
     lote_id: int,
     limite: int = Query(500, ge=1, le=10_000),
     offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None, description="Bearer <token do login>"),
 ) -> DetalheLoteHistorico:
     """Resumo e notas (com motivos de recusa) de um lote antigo. No modo carteira só o resumo é guardado."""
-    detalhe = request.app.state.historico.obter_lote(lote_id, limite, offset)
+    usuario = _exigir_usuario(request, authorization)
+    detalhe = request.app.state.historico.obter_lote(lote_id, limite, offset, _escopo(usuario))
     if detalhe is None:
         raise ErroEntrada("LOTE_NAO_ENCONTRADO", f"Lote {lote_id} não está no histórico.", 404)
     return DetalheLoteHistorico(**detalhe)
@@ -542,9 +574,11 @@ def historico_notas(
     nu_documento: str = Query(..., min_length=1, max_length=100, description="número da nota (zeros à esquerda são ignorados)"),
     limite: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None, description="Bearer <token do login>"),
 ) -> PaginaOcorrenciasNota:
     """Em quais lotes um número de nota apareceu e o que aconteceu com ela em cada um."""
-    itens, total = request.app.state.historico.buscar_nota(nu_documento, limite, offset)
+    usuario = _exigir_usuario(request, authorization)
+    itens, total = request.app.state.historico.buscar_nota(nu_documento, limite, offset, _escopo(usuario))
     return PaginaOcorrenciasNota(total=total, limite=limite, offset=offset, itens=itens)
 
 
@@ -553,8 +587,11 @@ def historico_regras(
     request: Request,
     limite: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None, description="Bearer <token do login>"),
 ) -> PaginaMudancasRegras:
-    """Cada PUT /validators aceito, com a versão e o JSON completo das regras aplicadas."""
+    """Cada PUT /validators aceito, com a versão e o JSON completo das regras aplicadas. Só gestor."""
+    if _exigir_usuario(request, authorization).get("role") != "GESTOR":
+        raise ErroEntrada("SEM_PERMISSAO", "Só o gestor do fundo vê o histórico de regras.", 403)
     itens, total = request.app.state.historico.listar_mudancas_regras(limite, offset)
     return PaginaMudancasRegras(total=total, limite=limite, offset=offset, itens=itens)
 

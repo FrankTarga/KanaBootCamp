@@ -7,6 +7,10 @@ Os 100k títulos do estoque continuam em RAM (StockIndex); aqui fica só o regis
 - mudancas_regras: cada PUT /validators aceito;
 - usuarios: login do portal, senha só como hash scrypt com salt.
 Uma conexão por operação: seguro com as threads do FastAPI e sem estado compartilhado.
+
+Esquema versionado em PRAGMA user_version: cada item de _MIGRACOES roda uma vez, em ordem e numa transação.
+Para mudar o esquema, acrescente um passo no fim (nunca edite um passo já aplicado em algum banco).
+Modo WAL: leituras do histórico não esperam a gravação de um lote grande.
 """
 
 from __future__ import annotations
@@ -23,8 +27,7 @@ from typing import Any
 
 from .stock_index import normalizar_nu_documento
 
-_SCHEMA = """
-PRAGMA foreign_keys = ON;
+_SCHEMA_INICIAL = """
 CREATE TABLE IF NOT EXISTS lotes (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
     criado_em             TEXT    NOT NULL,
@@ -98,6 +101,26 @@ CREATE TABLE IF NOT EXISTS usuarios (
 );
 """
 
+_MIGRACOES = (
+    # 1: tabelas base. IF NOT EXISTS: bancos criados antes do versionamento (user_version 0) passam direto
+    _SCHEMA_INICIAL,
+    # 2: quem enviou cada lote e quem mudou cada regra (NULL = chamada sem login, ex.: Swagger/curl)
+    """
+    ALTER TABLE lotes ADD COLUMN usuario_id INTEGER REFERENCES usuarios (id);
+    ALTER TABLE mudancas_regras ADD COLUMN usuario_id INTEGER REFERENCES usuarios (id);
+    CREATE INDEX IF NOT EXISTS ix_lotes_usuario ON lotes (usuario_id, id);
+    """,
+)
+VERSAO_ESQUEMA = len(_MIGRACOES)
+
+
+def migrar(conn: sqlite3.Connection) -> int:
+    """Aplica os passos que faltam; devolve a versão final. DDL do SQLite é transacional: ou o passo entra inteiro ou não."""
+    versao = conn.execute("PRAGMA user_version").fetchone()[0]
+    for numero in range(versao + 1, VERSAO_ESQUEMA + 1):
+        conn.executescript(f"BEGIN;\n{_MIGRACOES[numero - 1]}\nPRAGMA user_version = {numero};\nCOMMIT;")
+    return conn.execute("PRAGMA user_version").fetchone()[0]
+
 _COLUNAS_NOTA = (
     "linha_csv", "nu_documento", "nome_cedente", "doc_cedente", "nome_sacado", "doc_sacado", "tipo_recebivel",
     "valor_nominal", "data_vencimento", "prazo_dias", "desagio_reais", "valor_liquido", "status", "severidade",
@@ -135,8 +158,9 @@ def _lote(linha: sqlite3.Row) -> dict[str, Any]:
 class Historico:
     def __init__(self, caminho: Path):
         self.caminho = Path(caminho)
-        with closing(self._conectar()) as conn, conn:
-            conn.executescript(_SCHEMA)
+        with closing(self._conectar()) as conn:
+            conn.execute("PRAGMA journal_mode = WAL")  # fica gravado no arquivo: vale para as próximas conexões
+            migrar(conn)
 
     def _conectar(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.caminho, timeout=5)
@@ -175,12 +199,14 @@ class Historico:
                 )
         return lote_id
 
-    def registrar_mudanca_regras(self, request_id: str, versao_config: int, regras_ativas: int, config: dict) -> None:
+    def registrar_mudanca_regras(
+        self, request_id: str, versao_config: int, regras_ativas: int, config: dict, usuario_id: int | None = None
+    ) -> None:
         with closing(self._conectar()) as conn, conn:
             conn.execute(
-                "INSERT INTO mudancas_regras (criado_em, request_id, versao_config, regras_ativas, config_json) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (_agora(), request_id, versao_config, regras_ativas, json.dumps(config, ensure_ascii=False)),
+                "INSERT INTO mudancas_regras (criado_em, request_id, versao_config, regras_ativas, config_json, usuario_id) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (_agora(), request_id, versao_config, regras_ativas, json.dumps(config, ensure_ascii=False), usuario_id),
             )
 
     def salvar_usuario(self, email: str, senha: str, nome: str, cargo: str, role: str) -> None:
@@ -196,7 +222,7 @@ class Historico:
     def autenticar(self, email: str, senha: str) -> dict[str, Any] | None:
         with closing(self._conectar()) as conn:
             linha = conn.execute(
-                "SELECT email, senha_hash, nome, cargo, role FROM usuarios WHERE email = ?", (email.strip().lower(),)
+                "SELECT id, email, senha_hash, nome, cargo, role FROM usuarios WHERE email = ?", (email.strip().lower(),)
             ).fetchone()
         if not senha_confere(senha, linha["senha_hash"] if linha else _HASH_FALSO) or linha is None:
             return None
@@ -206,15 +232,21 @@ class Historico:
 
     # ----------------------------------------------------------------- leitura
 
-    def _pagina(self, tabela: str, limite: int, offset: int) -> tuple[list[sqlite3.Row], int]:
-        # tabela vem só de listar_* (nunca do usuário); limite e offset vão como parâmetros
+    def _pagina(
+        self, tabela: str, limite: int, offset: int, usuario_id: int | None = None
+    ) -> tuple[list[sqlite3.Row], int]:
+        # tabela vem só de listar_* (nunca do usuário); filtro, limite e offset vão como parâmetros
+        onde, filtro = ("WHERE usuario_id = ?", (usuario_id,)) if usuario_id is not None else ("", ())
         with closing(self._conectar()) as conn:
-            total = conn.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()[0]
-            linhas = conn.execute(f"SELECT * FROM {tabela} ORDER BY id DESC LIMIT ? OFFSET ?", (limite, offset)).fetchall()
+            total = conn.execute(f"SELECT COUNT(*) FROM {tabela} {onde}", filtro).fetchone()[0]
+            linhas = conn.execute(
+                f"SELECT * FROM {tabela} {onde} ORDER BY id DESC LIMIT ? OFFSET ?", (*filtro, limite, offset)
+            ).fetchall()
         return linhas, total
 
-    def listar_lotes(self, limite: int, offset: int) -> tuple[list[dict[str, Any]], int]:
-        linhas, total = self._pagina("lotes", limite, offset)
+    def listar_lotes(self, limite: int, offset: int, usuario_id: int | None = None) -> tuple[list[dict[str, Any]], int]:
+        """usuario_id = só os lotes desse usuário (cedente); None = todos (gestor)."""
+        linhas, total = self._pagina("lotes", limite, offset, usuario_id)
         return [_lote(l) for l in linhas], total
 
     def listar_mudancas_regras(self, limite: int, offset: int) -> tuple[list[dict[str, Any]], int]:
@@ -226,11 +258,12 @@ class Historico:
             itens.append(item)
         return itens, total
 
-    def obter_lote(self, lote_id: int, limite: int, offset: int) -> dict[str, Any] | None:
-        """Resumo + notas (com erros) de um lote. Repetição do cache mostra as notas do envio original."""
+    def obter_lote(self, lote_id: int, limite: int, offset: int, usuario_id: int | None = None) -> dict[str, Any] | None:
+        """Resumo + notas (com erros) de um lote. Repetição do cache mostra as notas do envio original.
+        Com usuario_id, lote de outro usuário é tratado como inexistente (não revela que existe)."""
         with closing(self._conectar()) as conn:
             linha = conn.execute("SELECT * FROM lotes WHERE id = ?", (lote_id,)).fetchone()
-            if linha is None:
+            if linha is None or (usuario_id is not None and linha["usuario_id"] != usuario_id):
                 return None
             lote = _lote(linha)
             origem = lote_id
@@ -268,17 +301,23 @@ class Historico:
             "notas": notas,
         }
 
-    def buscar_nota(self, nu_documento: str, limite: int, offset: int) -> tuple[list[dict[str, Any]], int]:
+    def buscar_nota(
+        self, nu_documento: str, limite: int, offset: int, usuario_id: int | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
         """Em quais lotes um número de nota apareceu (mesma normalização da chave canônica)."""
         busca = normalizar_nu_documento(nu_documento)
+        onde = "n.nu_documento_busca = ?" + (" AND l.usuario_id = ?" if usuario_id is not None else "")
+        filtro = (busca, usuario_id) if usuario_id is not None else (busca,)
         with closing(self._conectar()) as conn:
-            total = conn.execute("SELECT COUNT(*) FROM notas_lote WHERE nu_documento_busca = ?", (busca,)).fetchone()[0]
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM notas_lote n JOIN lotes l ON l.id = n.lote_id WHERE {onde}", filtro
+            ).fetchone()[0]
             linhas = conn.execute(
-                """SELECT n.*, l.criado_em, l.modo, l.what_if, l.batch_hash,
-                          (SELECT GROUP_CONCAT(codigo, ',') FROM erros_nota e WHERE e.nota_id = n.id) AS codigos
-                   FROM notas_lote n JOIN lotes l ON l.id = n.lote_id
-                   WHERE n.nu_documento_busca = ? ORDER BY n.id DESC LIMIT ? OFFSET ?""",
-                (busca, limite, offset),
+                f"""SELECT n.*, l.criado_em, l.modo, l.what_if, l.batch_hash,
+                           (SELECT GROUP_CONCAT(codigo, ',') FROM erros_nota e WHERE e.nota_id = n.id) AS codigos
+                    FROM notas_lote n JOIN lotes l ON l.id = n.lote_id
+                    WHERE {onde} ORDER BY n.id DESC LIMIT ? OFFSET ?""",
+                (*filtro, limite, offset),
             ).fetchall()
         itens = []
         for linha in linhas:

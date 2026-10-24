@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,18 +15,34 @@ from .conftest import SACADO_LIVRE, linha_csv, montar_csv
 
 CHAVE = "chave-teste"
 AUTH = {"X-API-Key": CHAVE}
+GESTOR = ("banca@antecipe.com.br", "senha-da-banca")
+CEDENTE = ("empresa@antecipe.com.br", "senha-da-empresa")
 LOTE = montar_csv(
     linha_csv(SACADO_LIVRE, "H1", "1000,00", "21/11/2026"),
     linha_csv(SACADO_LIVRE, "H2", "50,00", "21/11/2026"),
 )
 
 
-@pytest.fixture()
-def client(pasta_dados, monkeypatch):
+def _ambiente(pasta_dados, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(pasta_dados))
     monkeypatch.setenv("ADMIN_API_KEY", CHAVE)
-    monkeypatch.delenv("RECEITA_API_URL", raising=False)
+    monkeypatch.setenv("BANCA_SENHA", GESTOR[1])
+    monkeypatch.setenv("CEDENTE_SENHA", CEDENTE[1])
+    for var in ("RECEITA_API_URL", "BANCA_EMAIL", "CEDENTE_EMAIL"):
+        monkeypatch.delenv(var, raising=False)
+
+
+def bearer(c, email, senha):
+    token = c.post("/api/v1/auth/login", json={"email": email, "senha": senha}).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture()
+def client(pasta_dados, monkeypatch):
+    """Cliente logado como gestor (vê o histórico inteiro)."""
+    _ambiente(pasta_dados, monkeypatch)
     with TestClient(app) as c:
+        c.headers.update(bearer(c, *GESTOR))
         yield c
 
 
@@ -86,12 +103,11 @@ def test_mudanca_de_regras_aceita_vai_para_o_historico_e_a_recusada_nao(client):
 
 
 def test_historico_sobrevive_ao_reinicio_da_api(pasta_dados, monkeypatch):
-    monkeypatch.setenv("DATA_DIR", str(pasta_dados))
-    monkeypatch.delenv("RECEITA_API_URL", raising=False)
+    _ambiente(pasta_dados, monkeypatch)
     with TestClient(app) as c:
         enviar(c)
     with TestClient(app) as c:  # nova instância, mesmo arquivo historico.db
-        assert c.get("/api/v1/historico/lotes").json()["total"] == 1
+        assert c.get("/api/v1/historico/lotes", headers=bearer(c, *GESTOR)).json()["total"] == 1
     assert (pasta_dados / "historico.db").exists()
 
 
@@ -173,3 +189,107 @@ def test_lote_e_notas_entram_juntos_ou_nao_entram(client, monkeypatch):
     monkeypatch.setattr(historico_mod, "normalizar_nu_documento", quebra)
     assert enviar(client).status_code == 200  # a validação segue
     assert client.get("/api/v1/historico/lotes").json()["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Login no histórico: cada cedente vê só os próprios lotes
+# ---------------------------------------------------------------------------
+
+def _usuario_id_gravado(pasta_dados, tabela):
+    with sqlite3.connect(pasta_dados / "historico.db") as conn:
+        return [l[0] for l in conn.execute(f"SELECT usuario_id FROM {tabela} ORDER BY id")]
+
+
+def test_historico_exige_login(pasta_dados, monkeypatch):
+    _ambiente(pasta_dados, monkeypatch)
+    with TestClient(app) as c:
+        enviar(c)  # validar segue aberto (Swagger/curl da banca)
+        for rota in ("/historico/lotes", "/historico/lotes/1", "/historico/regras"):
+            r = c.get(f"/api/v1{rota}")
+            assert r.status_code == 401 and r.json()["error"]["code"] == "SESSAO_INVALIDA", rota
+        assert c.get("/api/v1/historico/notas", params={"nu_documento": "H1"}).status_code == 401
+        r = c.get("/api/v1/historico/lotes", headers={"Authorization": "Bearer token-forjado"})
+        assert r.status_code == 401
+
+
+def test_cedente_ve_so_os_proprios_lotes_e_gestor_ve_todos(client, pasta_dados):
+    cedente = bearer(client, *CEDENTE)
+    enviar(client)  # gestor
+    outro = montar_csv(linha_csv(SACADO_LIVRE, "H1", "2000,00", "22/11/2026"))
+    client.post("/api/v1/batches/validate", files={"file": ("c.csv", outro, "text/csv")}, headers=cedente)
+    id_gestor, id_cedente = _usuario_id_gravado(pasta_dados, "lotes")
+    assert id_gestor != id_cedente and None not in (id_gestor, id_cedente)
+
+    do_cedente = client.get("/api/v1/historico/lotes", headers=cedente).json()
+    assert do_cedente["total"] == 1 and do_cedente["itens"][0]["valor_bruto_total"] == 2000.0
+    assert client.get("/api/v1/historico/lotes").json()["total"] == 2  # gestor
+
+    lote_do_gestor = 1
+    r = client.get(f"/api/v1/historico/lotes/{lote_do_gestor}", headers=cedente)
+    assert r.status_code == 404 and r.json()["error"]["code"] == "LOTE_NAO_ENCONTRADO"  # não revela que existe
+    assert client.get(f"/api/v1/historico/lotes/{lote_do_gestor}").status_code == 200
+
+    # a nota H1 está nos dois lotes; o cedente só enxerga a dele
+    notas = client.get("/api/v1/historico/notas", params={"nu_documento": "H1"}, headers=cedente).json()
+    assert notas["total"] == 1 and notas["itens"][0]["valor_nominal"] == 2000.0
+    assert client.get("/api/v1/historico/notas", params={"nu_documento": "H1"}).json()["total"] == 2
+
+
+def test_repeticao_do_cache_entra_no_historico_de_quem_reenviou(client, pasta_dados):
+    enviar(client)  # gestor gera o cache
+    client.post("/api/v1/batches/validate", files={"file": ("l.csv", LOTE, "text/csv")}, headers=bearer(client, *CEDENTE))
+    id_gestor, id_cedente = _usuario_id_gravado(pasta_dados, "lotes")
+    assert id_gestor != id_cedente
+    assert client.get("/api/v1/historico/lotes", headers=bearer(client, *CEDENTE)).json()["itens"][0]["replay"] is True
+
+
+def test_historico_de_regras_e_so_do_gestor_e_guarda_quem_mudou(client, pasta_dados):
+    config = client.get("/api/v1/validators").json()
+    assert client.put("/api/v1/validators", headers=AUTH, json=config).status_code == 200  # com token do gestor
+    [quem] = _usuario_id_gravado(pasta_dados, "mudancas_regras")
+    assert quem is not None
+    r = client.get("/api/v1/historico/regras", headers=bearer(client, *CEDENTE))
+    assert r.status_code == 403 and r.json()["error"]["code"] == "SEM_PERMISSAO"
+
+
+# ---------------------------------------------------------------------------
+# Migrações (PRAGMA user_version) e modo WAL
+# ---------------------------------------------------------------------------
+
+def test_banco_antigo_ganha_as_colunas_novas_sem_perder_dados(tmp_path):
+    caminho = tmp_path / "antigo.db"
+    with sqlite3.connect(caminho) as conn:  # banco criado antes do versionamento: user_version 0, sem usuario_id
+        conn.executescript(historico_mod._SCHEMA_INICIAL)
+        conn.execute(
+            "INSERT INTO mudancas_regras (criado_em, request_id, versao_config, regras_ativas, config_json) "
+            "VALUES ('2026-10-22T00:00:00+00:00', 'r1', 2, 6, '{}')"
+        )
+    assert sqlite3.connect(caminho).execute("PRAGMA user_version").fetchone()[0] == 0
+
+    hist = historico_mod.Historico(caminho)
+    historico_mod.Historico(caminho)  # segunda abertura não reaplica nada
+    with sqlite3.connect(caminho) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == historico_mod.VERSAO_ESQUEMA
+        for tabela in ("lotes", "mudancas_regras"):
+            assert "usuario_id" in [c[1] for c in conn.execute(f"PRAGMA table_info({tabela})")]
+    itens, total = hist.listar_mudancas_regras(10, 0)
+    assert total == 1 and itens[0]["request_id"] == "r1"
+
+
+def test_passo_de_migracao_com_erro_nao_deixa_banco_pela_metade(tmp_path, monkeypatch):
+    caminho = tmp_path / "h.db"
+    historico_mod.Historico(caminho)
+    quebrado = "CREATE TABLE extra (x INTEGER); ALTER TABLE tabela_que_nao_existe ADD COLUMN y INTEGER;"
+    monkeypatch.setattr(historico_mod, "_MIGRACOES", (*historico_mod._MIGRACOES, quebrado))
+    monkeypatch.setattr(historico_mod, "VERSAO_ESQUEMA", historico_mod.VERSAO_ESQUEMA + 1)
+    with pytest.raises(sqlite3.OperationalError):
+        historico_mod.Historico(caminho)
+    with sqlite3.connect(caminho) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == len(historico_mod._MIGRACOES) - 1
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'extra'").fetchone() is None
+
+
+def test_banco_fica_em_modo_wal(tmp_path):
+    historico_mod.Historico(tmp_path / "h.db")
+    with sqlite3.connect(tmp_path / "h.db") as conn:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"

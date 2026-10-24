@@ -324,8 +324,8 @@ class LoginRequest(BaseModel):
 
 
 class UsuarioLogado(BaseModel):
-    # shortcut: o token protege a sessão do portal (GET /auth/me), mas as rotas de dados seguem abertas
-    # para Swagger/curl da banca; o PUT /validators continua exigindo X-API-Key. Exigir o token nelas se virar produto.
+    # shortcut: o token protege a sessão (GET /auth/me) e o histórico (/historico/*); validar e GET /validators seguem
+    # abertos para Swagger/curl da banca e o PUT /validators continua exigindo X-API-Key. Exigir o token nelas se virar produto.
     email: str
     nome: str
     cargo: str
