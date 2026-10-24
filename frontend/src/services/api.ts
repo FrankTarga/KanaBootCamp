@@ -131,10 +131,21 @@ async function requisitar<T>(caminho: string, init?: RequestInit, timeoutMs = 80
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  // sessão do login (App.tsx guarda em localStorage): o histórico exige; validar e PUT registram quem fez
+  const headers = new Headers(init?.headers);
+  let token: string | null = null;
+  try {
+    token = localStorage.getItem("antecipe_token");
+  } catch {
+    // storage bloqueado: segue sem sessão
+  }
+  if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+
   let resposta: Response;
   try {
     resposta = await fetch(`${API_URL}${caminho}`, {
       ...init,
+      headers,
       signal: controller.signal,
     });
   } catch (err: unknown) {
