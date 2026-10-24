@@ -112,8 +112,8 @@ def carregar_settings() -> Settings:
         banca_senha=os.getenv("BANCA_SENHA", "") or None,
         cedente_email=os.getenv("CEDENTE_EMAIL", "empresa@antecipe.com.br").strip().lower(),
         cedente_senha=os.getenv("CEDENTE_SENHA", "") or None,
-        # sem SESSAO_SEGREDO: segredo aleatório por processo (restart do backend desloga todo mundo)
-        sessao_segredo=os.getenv("SESSAO_SEGREDO", "").encode() or os.urandom(32),
+        # sem SESSAO_SEGREDO: segredo determinístico local para não deslogar no reload do uvicorn
+        sessao_segredo=os.getenv("SESSAO_SEGREDO", "segredo-antecipe-pro-fidc-2026").encode(),
         sessao_validade_s=int(os.getenv("SESSAO_HORAS", "8")) * 3600,
     )
 

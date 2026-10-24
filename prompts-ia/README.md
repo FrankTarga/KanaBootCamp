@@ -25,6 +25,7 @@ Histórico das interações com IA durante o hackathon (requisito de submissão)
 | `2026-10-24_dev3-frontend_05-nomes-comuns-pagina-inicial-e-rolagem.txt` | Dev 3 (Front/Design) | nomes em português comum, página inicial e rolagem contida nos painéis |
 | `2026-10-24_dev3-frontend_06-login-transicao-e-menu-fixo.txt` | Dev 3 (Front/Design) | integração do login, transição da página inicial, menu fixo e barras da liquidez |
 | `2026-10-24_dev3-frontend_07-revisao-prompt-concorrencia.txt` | Dev 3 (revisão técnica) | avaliação do prompt de concorrência (WAL, IDs, threads) com medição de latência |
+| `2026-10-24_persistencia-acid-login-rbac-e-ingestao-pdf.md` | Engenharia / IA | implementação TDD da RFC-001 (ACID WAL), login scrypt/RBAC (RFC-002), atalhos da banca e arquitetura híbrida para ingestão de PDFs |
 
 ## Como adicionar o seu
 
