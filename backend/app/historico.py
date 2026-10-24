@@ -154,25 +154,24 @@ class Historico:
         with closing(self._conectar()) as conn, conn:
             lote_id = int(conn.execute(f"INSERT INTO lotes ({colunas}) VALUES ({marcadores})", list(campos.values())).lastrowid or 0)
             if itens:
-                # o INSERT acima já tem o lock de escrita desta transação: ninguém mais grava notas até o commit
-                primeiro = conn.execute("SELECT COALESCE(MAX(id), 0) FROM notas_lote").fetchone()[0] + 1
-                conn.executemany(
-                    f"INSERT INTO notas_lote (id, lote_id, nu_documento_busca, {', '.join(_COLUNAS_NOTA)}) "
-                    f"VALUES (?, ?, ?, {', '.join('?' for _ in _COLUNAS_NOTA)})",
-                    [
-                        (primeiro + i, lote_id, normalizar_nu_documento(item.nu_documento),
-                         *(getattr(item, c) for c in _COLUNAS_NOTA))
-                        for i, item in enumerate(itens)
-                    ],
+                sql_nota = (
+                    f"INSERT INTO notas_lote (lote_id, nu_documento_busca, {', '.join(_COLUNAS_NOTA)}) "
+                    f"VALUES (?, ?, {', '.join('?' for _ in _COLUNAS_NOTA)})"
                 )
+                erros = []
+                for item in itens:
+                    nota_id = conn.execute(
+                        sql_nota,
+                        (lote_id, normalizar_nu_documento(item.nu_documento), *(getattr(item, c) for c in _COLUNAS_NOTA)),
+                    ).lastrowid
+                    erros += [
+                        (nota_id, ordem, e.codigo, e.titulo_amigavel, e.mensagem_empresa, e.acao_recomendada)
+                        for ordem, e in enumerate(item.erros)
+                    ]
                 conn.executemany(
                     "INSERT INTO erros_nota (nota_id, ordem, codigo, titulo_amigavel, mensagem_empresa, acao_recomendada) "
                     "VALUES (?, ?, ?, ?, ?, ?)",
-                    [
-                        (primeiro + i, ordem, e.codigo, e.titulo_amigavel, e.mensagem_empresa, e.acao_recomendada)
-                        for i, item in enumerate(itens)
-                        for ordem, e in enumerate(item.erros)
-                    ],
+                    erros,
                 )
         return lote_id
 
