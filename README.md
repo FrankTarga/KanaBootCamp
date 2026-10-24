@@ -6,14 +6,18 @@ A empresa (cedente) envia um lote CSV de notas e recebe na hora quanto vai receb
 
 ## Subir tudo
 
-bash (VPS ou qualquer máquina com Docker):
+Com Docker (Windows, Mac ou a VPS Linux), na raiz do repositório:
 
 ```bash
-docker compose up -d --build
+cp .env.example .env          # PowerShell: Copy-Item .env.example .env  (troque a ADMIN_API_KEY)
+docker compose up -d --build  # sobe mock-receita, backend e frontend; ~1 min na primeira vez
+docker compose ps             # backend e mock-receita devem ficar "healthy"
 ```
 
 - Front-end: http://localhost:5173
 - API: http://localhost:8000/api/v1 · docs interativas em http://localhost:8000/docs
+- O mock da Receita só fica acessível na rede interna do compose; a API o consulta em `http://mock-receita:8001`.
+- Variáveis: `ADMIN_API_KEY` (obrigatória, no `.env`); as demais já vêm no `docker-compose.yml` (ver `backend/README.md`).
 
 Sem Docker (PowerShell, Windows), um terminal por serviço:
 
@@ -82,7 +86,7 @@ Testes do back-end: `cd backend; .\.venv\Scripts\python -m pytest tests -q`
 | GET | `/api/v1/validators` | JSON de regras atual |
 | PUT | `/api/v1/validators` | troca as regras em memória e salva em disco (sem restart); exige header `X-API-Key` = env `ADMIN_API_KEY` (401 sem a chave, 403 se a env não estiver definida) |
 | POST | `/api/v1/portfolio/validate` | `multipart/form-data`: `file` (carteira/estoque inteiro). Saída no formato do gabarito oficial; ver *Modo carteira* |
-| POST | `/api/v1/batches/validate` | `multipart/form-data`: `file`, `data_base?`, `taxa_mensal?`, `otimizar_lote?`, `validadores_override?` |
+| POST | `/api/v1/batches/validate` | `multipart/form-data`: `file`, `data_base?`, `taxa_mensal?`, `otimizar_lote?`, `validadores_override?`, `modo?` (`lote`, o padrão, ou `carteira`) |
 
 Os tipos exatos estão em [`frontend/src/types/api.ts`](frontend/src/types/api.ts), espelho de [`backend/app/api_schemas.py`](backend/app/api_schemas.py). Mudou um, muda o outro no mesmo commit.
 
@@ -90,6 +94,7 @@ Os tipos exatos estão em [`frontend/src/types/api.ts`](frontend/src/types/api.t
 - **Situação cadastral fail-closed:** o back-end consulta `RECEITA_API_URL` (BrasilAPI real ou `mock-receita/`) para cada CNPJ de sacado do lote, em paralelo e com cache de 1 h. CNPJ não encontrado ou consulta que falhou = nota recusada. Sem `RECEITA_API_URL`, a fonte é `backend/data/situacao_cadastral.json` (e CNPJ ausente do arquivo também é recusado).
 - **Prazo mínimo de cobrança:** `precificacao.prazo_minimo_cobranca_dias` (hoje 5). Nota que vence em menos dias, inclusive na própria data-base, é aceita se passar nas regras, mas paga deságio de 5 dias.
 - **API key na gaveta do gestor:** o gestor digita a chave e o Front guarda em `sessionStorage`. Nunca coloque a chave em `VITE_*`, porque vai parar no JavaScript público.
+- **`analise_recusas`** (em toda resposta de `/batches/validate`, nos modos lote e carteira e no what-if): o painel de recusas do Estatístico. Grupos que somam 100%, combinações de problemas e quanto dinheiro cada correção libera. Contrato em [`docs/analise-recusas.md`](docs/analise-recusas.md); o front mostra os números como vêm. A busca por número da nota usa os `itens` que já vêm na resposta.
 - `validadores_override` (opcional): JSON de regras só para aquela validação. É o **what-if** do gestor e não persiste nada.
 - Header `X-Idempotent-Replay: true` quando o mesmo arquivo, com os mesmos parâmetros e a mesma versão de regras, já foi processado.
 - Erros sempre em `{"error": {"code", "message", "details"}}`.
@@ -97,7 +102,7 @@ Os tipos exatos estão em [`frontend/src/types/api.ts`](frontend/src/types/api.t
 
 ## Modo carteira (gabarito oficial)
 
-`POST /api/v1/portfolio/validate` (multipart `file`) ou a CLI julgam **cada linha de um estoque** contra as regras do fundo e devolvem exatamente o formato de `resultado_esperado_100k.json`: `[{"linha", "id", "status": "APROVADO" | "BARRADO", "barrado_por"?}]`.
+Para a tela, `POST /api/v1/batches/validate` com `modo=carteira` devolve a resposta completa (status, motivo explicado, valor líquido e total) com as regras do gabarito. Para conferência automática, `POST /api/v1/portfolio/validate` (multipart `file`) ou a CLI julgam **cada linha de um estoque** contra as regras do fundo e devolvem exatamente o formato de `resultado_esperado_100k.json`: `[{"linha", "id", "status": "APROVADO" | "BARRADO", "barrado_por"?}]`.
 
 ```powershell
 cd backend
@@ -107,9 +112,12 @@ cd backend
 Diferenças em relação ao modo lote:
 - prazo e vencimento contam a partir da `DATA_AQUISICAO` da própria linha;
 - a concentração é **estática por fundo**: se a raiz do sacado passa do teto sobre as notas elegíveis daquele fundo, todas as notas dela são barradas (e ela só é avaliada em nota sem outro erro);
-- não há radar de duplicidade, porque o arquivo é o próprio estoque.
+- não há radar de duplicidade, porque o arquivo é o próprio estoque;
+- não há limite de linhas (o estoque inteiro, com 100.554 notas, leva ~10 s); o modo lote continua limitado a `MAX_LINHAS_LOTE`.
 
-`tests/test_conformidade_gabarito.py` compara as 100.554 linhas com o gabarito: **todas as regras que dependem só do kit batem linha a linha**. As únicas divergências são as 2.317 linhas de `SITUACAO_CADASTRAL_SACADO` (87 CNPJs), porque a situação usada pela organização não veio no kit, e a Receita real (BrasilAPI) dá outra situação para esses CNPJs sintéticos. A igualdade total fica marcada como pendência (`xfail` estrito) até a fonte oficial chegar.
+Quando usar cada modo: **lote** é a empresa oferecendo notas novas ao fundo (confere duplicidade contra o estoque, otimiza a ordem e calcula a concentração contra a carteira atual); **carteira** é conferir um arquivo inteiro de títulos, que é como o gabarito oficial foi gerado.
+
+`tests/test_conformidade_gabarito.py` compara as 100.554 linhas com o gabarito: **100% idênticas**, inclusive pelo endpoint ao vivo com o mock da Receita. A situação cadastral vem de `backend/data/situacao_cadastral.json`, gerado por `backend/gerar_situacao_cadastral.py` a partir do próprio gabarito (os 87 CNPJs barrados por `SITUACAO_CADASTRAL_SACADO`). Foi uma decisão do time: o kit não trouxe a fonte da organização, e os CNPJs do dataset são sintéticos, então a Receita real diverge. O gabarito não diz qual é a situação, só que não é ATIVA; por isso o rótulo é `IRREGULAR`. O mock responde ATIVA para qualquer outro CNPJ com dígito verificador válido (é o que o gabarito implica) e 404 para CNPJ inválido.
 
 ## Diferenciais técnicos
 
@@ -126,7 +134,7 @@ Data-base padrão: **22/10/2026**, o próximo dia útil após a maior `DATA_AQUI
 
 | arquivo | o que mostra |
 |---|---|
-| [`01_lote_empresarial_padrao.csv`](samples/01_lote_empresarial_padrao.csv) | lote típico da FÁBRICA DE TINTAS VARGINHA: 22 notas, 14 aprovadas (R$ 199.343,36 líquidos) e recusas por vencida, prazo > 180 dias, valor < R$ 100, cheque, CNPJ inválido, CNPJ baixado na Receita, concentração (a SERRALHERIA VIOLETA já tem 12,5% da carteira) e uma nota com 3 violações ao mesmo tempo |
+| [`01_lote_empresarial_padrao.csv`](samples/01_lote_empresarial_padrao.csv) | lote típico da FÁBRICA DE TINTAS VARGINHA: 22 notas, 13 aprovadas (R$ 184.221,52 líquidos) e recusas por vencida, prazo > 180 dias, valor < R$ 100, cheque, CNPJ inválido, situação cadastral irregular (2 clientes da lista de referência), concentração (a SERRALHERIA VIOLETA já tem 12,5% da carteira) e uma nota com 3 violações ao mesmo tempo |
 | [`02_demo_otimizador_concentracao.csv`](samples/02_demo_otimizador_concentracao.csv) | DIVINÓPOLIS perto do teto de 10%: na ordem do CSV a nota de R$ 3 mi (75 dias) consome o limite; o otimizador aprova as de R$ 2,3 mi e R$ 2,2 mi (8 e 12 dias): **+R$ 1.620.133,33** e 2 notas salvas |
 | [`03_demo_radar_antifraude.csv`](samples/03_demo_radar_antifraude.csv) | nota repetida no lote, 2 notas já compradas pelo ANTECIPE (uma com os zeros cortados pelo Excel) e 3 notas já na carteira de outros fundos (alerta de fraude) |
 
@@ -184,3 +192,26 @@ Rodando `scripts/raio_x_e_gerador_samples.py` contra o `estoque_antecipe.csv` co
 ### Massas de demonstração (`samples/`)
 
 Os 3 CSVs em `samples/` já estão ajustados aos números do "Roteiro de demo" acima e não foram alterados por esta análise. `scripts/raio_x_e_gerador_samples.py` fica disponível no repositório para regenerá-los a partir do estoque real sempre que for preciso (por exemplo, se o `estoque_antecipe.csv` for atualizado antes da apresentação) — mas regenerar troca os números citados no Roteiro de demo, então só rodar de novo com o time ciente, revisando o README junto.
+
+## Relatório
+
+**O que construímos.** Um portal de antecipação para o ANTECIPE FIDC. A empresa envia o CSV e vê, para cada nota, se foi aprovada ou recusada, o motivo explicado em português simples com o que fazer, o valor líquido de cada nota e o total a receber. O gestor muda as regras pela tela ou pela API sem deploy e simula o efeito antes de salvar. A mesma validação existe pela tela e pela API, e o modo carteira reproduz o gabarito oficial nas 100.554 linhas.
+
+**Tecnologias.** Back-end em Python 3.12 + FastAPI + Pydantic v2, com o estoque indexado em memória (sem banco). Front-end em React + Vite + Tailwind + TypeScript. Mock da Receita em FastAPI no formato da BrasilAPI. Testes com pytest (141 testes, 98% de cobertura de branches). Tudo sobe com Docker Compose.
+
+**Principais decisões.**
+- Regras 100% lidas do `validadores_antecipe.json`, validadas no `PUT` e trocadas em memória sem reiniciar.
+- Dois modos de validação (lote e carteira), porque notas novas e uma carteira inteira são problemas diferentes. O detalhe está na RFC.
+- Situação cadastral fail-closed: sem confirmação de CNPJ ativo, a nota não é comprada.
+- Chave de duplicidade que ignora os zeros à esquerda do número da nota (o Excel os apaga).
+- Desconto comercial simples com prazo mínimo de cobrança de 5 dias.
+
+**O que ficou de fora.**
+- Situação cadastral real: o kit não trouxe a fonte da organização, e a Receita real diverge dos CNPJs sintéticos do dataset. Usamos uma lista de referência extraída do gabarito (decisão do time).
+- Efetivar a compra: o sistema valida e precifica, mas não registra a cessão nem atualiza o estoque.
+- Usuários e perfis: o `PUT` das regras é protegido por uma chave única, sem login.
+- Histórico entre lotes (banco de dados): cada validação é independente.
+- Escala horizontal: o estado fica em memória, então a API roda com 1 processo.
+- Feriados: a data-base D+1 útil considera só os fins de semana.
+
+Detalhes técnicos em [`docs/rfcs/0001-backend-antecipe-pro.md`](docs/rfcs/0001-backend-antecipe-pro.md).

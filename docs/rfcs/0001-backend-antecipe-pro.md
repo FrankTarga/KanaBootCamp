@@ -129,7 +129,7 @@ Mapeamento do JSON atual:
 | código | ativo | regra |
 |---|---|---|
 | CNPJ_SACADO_VALIDO | ✔ | dígito verificador de CNPJ (inclusive o novo alfanumérico) ou de CPF |
-| SITUACAO_CADASTRAL_SACADO | ✔ | situação lida de `data/situacao_cadastral.json`; CNPJ ausente conta como ATIVA |
+| SITUACAO_CADASTRAL_SACADO | ✔ | **fail-closed**: consulta `RECEITA_API_URL` (mock-receita ou BrasilAPI) ou o JSON local; CNPJ não encontrado, inválido ou com consulta falha = recusa. A base de referência dos 87 irregulares vem do gabarito (ver Modo carteira) |
 | TIPO_RECEBIVEL | ✔ | `tipos_aceitos` / `tipos_bloqueados`, sem diferenciar maiúsculas nem acentos |
 | VALOR_MINIMO | ✔ | V ≥ 100 |
 | NAO_VENCIDA | ✔ | vencimento ≥ data-base |
@@ -191,7 +191,19 @@ O gabarito oficial `resultado_esperado_100k.json` julga **cada linha do estoque*
 | concentração | Shadow Ledger sequencial contra o estoque | estática por fundo, sobre as notas elegíveis; só em nota sem outro erro |
 | duplicidade/fraude | 3 níveis contra o estoque | não se aplica (o arquivo é o estoque) |
 
-Entregas: `RuleEngine.validar_carteira`, `POST /api/v1/portfolio/validate`, a CLI `python -m app.validar_carteira` e `tests/test_conformidade_gabarito.py`. Ele exige igualdade linha a linha em todas as regras que dependem do kit e falha com 275 divergências se o teto de concentração mudar de 10% para 9,9%. Pendente: a fonte da situação cadastral usada no gabarito (87 CNPJs, 2.317 linhas). Ela não veio no kit, e a Receita real diverge, porque os CNPJs do dataset são sintéticos e coincidem com outras empresas reais.
+Entregas: `RuleEngine.validar_carteira`, `POST /api/v1/portfolio/validate`, a CLI `python -m app.validar_carteira` e `tests/test_conformidade_gabarito.py`, que exige **igualdade total** nas 100.554 linhas e falha com 275 divergências se o teto de concentração mudar de 10% para 9,9%. Situação cadastral: o kit não trouxe a fonte, e a Receita real diverge porque os CNPJs são sintéticos. Por decisão do tech lead, `backend/gerar_situacao_cadastral.py` extrai do gabarito os 87 CNPJs barrados por situação e grava `data/situacao_cadastral.json` com o rótulo `IRREGULAR`; o mock-receita serve essa lista.
+
+**Na tela:** `POST /api/v1/batches/validate` aceita `modo=carteira` e devolve a mesma resposta completa do modo lote (motivos explicados, valor líquido e total), com as regras do gabarito. A mensagem de concentração cita os totais do próprio arquivo. O modo carteira não tem limite de linhas: as 100.554 levam ~10 s pelo Docker. O teste `test_tela_modo_carteira_bate_com_o_gabarito` exige status e motivos iguais ao gabarito nas 100.554 linhas.
+
+**Mock da Receita:** responde ATIVA para todo CNPJ com dígito verificador válido, exceto os da lista de irregulares, e 404 para CNPJ inválido. Assim, um CSV com clientes novos não é recusado em massa, e o fail-closed da API continua valendo quando o mock cai ou responde erro.
+
+### Painel de recusas (`analise_recusas`)
+
+A análise descritiva das recusas é do Estatístico (`backend/app/analise_recusas.py`, contrato em `docs/analise-recusas.md`). O back-end a expõe como o campo `analise_recusas` na resposta de `POST /batches/validate`, para a tela receber tudo numa chamada só. O campo vale nos modos lote e carteira e no what-if do gestor (`validadores_override`).
+
+- O motor passa para `analisar_recusas()` dicts leves com status, valores e erros de cada nota, sem `model_dump`, para não pesar nas 100k linhas; o custo ficou dentro da variação de medida.
+- Os modelos Pydantic (`AnaliseRecusas` e filhos) documentam o formato no `/docs` e quebram um teste se a função mudar de forma. Eles usam `extra="allow"`, para que um campo novo do Estatístico passe adiante.
+- Testes: o campo é igual a `analisar_recusas(itens)` da própria resposta, os cards fecham 100%, o what-if muda a análise, e nas 100.554 linhas dá 15.339 recusadas e 4.770 (31,1%) com mais de um problema, como no documento do Estatístico.
 
 ## Alternativas consideradas
 
@@ -228,7 +240,7 @@ Entregas: `RuleEngine.validar_carteira`, `POST /api/v1/portfolio/validate`, a CL
 4. ✅ `main` com rotas, erros padronizados, idempotência e what-if.
 5. ✅ 60 testes (`backend/tests`), cobrindo cada regra, os 3 níveis do radar, o Shadow Ledger, o ganho do otimizador ≥ 0, o PUT zero-deploy e o contrato.
 6. ✅ Samples 01–03 validados no motor real (14/22 aprovadas; +R$ 1.620.133,33 no 02; 3 alertas de fraude no 03).
-7. ⬜ Validar o `docker compose up` na VPS.
+7. ✅ `docker compose up -d --build` validado do zero (mock-receita + backend + frontend, healthchecks ok, evidência ponta a ponta nos containers). Falta repetir na VPS.
 8. ⬜ API key no `PUT /validators` (se aprovada).
 9. ⬜ Ensaio da demo com o Front consumindo `taxa_mensal_padrao` e a gaveta do gestor chamando `validadores_override`.
 
