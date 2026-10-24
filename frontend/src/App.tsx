@@ -196,7 +196,10 @@ export default function App() {
       <GavetaGestor
         aberto={drawerGestorAberto}
         onFechar={() => setDrawerGestorAberto(false)}
-        onAplicarRegras={async (config) => { await salvarValidadores(config); await processarLote(arquivoAtual, config, false); }}
+        onAplicarRegras={async (config, chave) => {
+          await salvarValidadores(config, chave);
+          await processarLote(arquivoAtual, config, false);
+        }}
         onSimularWhatIf={(config) => processarLote(arquivoAtual, config, true)}
         carregando={carregando}
         comparativo={comparativoRegras}
