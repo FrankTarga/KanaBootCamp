@@ -48,7 +48,46 @@ npm install
 npm run dev
 ```
 
-Testes do back-end: `cd backend; .\.venv\Scripts\python -m pytest tests -q`
+### Testes do back-end
+
+Executar todos os testes automatizados da suíte:
+```powershell
+cd backend
+.\.venv\Scripts\python -m pytest tests -q
+```
+
+#### Testes Automatizados (pytest)
+Suíte com 5 testes unitários diretos cobrindo o core de validação, motor quantitativo e Shadow Ledger (`backend/tests/test_engine.py`):
+
+1. `test_calculo_desagio_data_base_quinta_feira()` — Cálculo de deságio comercial com data-base em dia útil (quinta-feira).
+2. `test_concentracao_acumulativa_intra_lote()` — Shadow Ledger: estanca concentração cumulativa intra-lote em tempo real.
+3. `test_radar_antifraude_outro_fundo()` — Radar antifraude: bloqueia duplicidade/dupla cessão em outro fundo via hash canônico SHA-256.
+4. `test_otimizador_lote_aumenta_valor_liquido()` — Smart Batch Optimizer: mochila 0/1 maximizando o valor líquido a receber.
+5. `test_hot_reload_validadores_sem_deploy()` — Zero-Deploy: atualização atômica de validadores em memória sem reinicialização.
+
+Comando para rodar os 5 testes unitários:
+```powershell
+cd backend
+.\.venv\Scripts\pytest -v tests/test_engine.py -k "test_calculo_desagio_data_base_quinta_feira or test_concentracao_acumulativa_intra_lote or test_radar_antifraude_outro_fundo or test_otimizador_lote_aumenta_valor_liquido or test_hot_reload_validadores_sem_deploy" -o "addopts="
+```
+
+Resultado dos testes:
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.14.7, pytest-9.1.1, pluggy-1.7.0 -- backend\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: backend
+plugins: anyio-4.15.1, cov-7.1.0
+collecting ... collected 5 items
+
+tests/test_engine.py::test_calculo_desagio_data_base_quinta_feira PASSED [ 20%]
+tests/test_engine.py::test_concentracao_acumulativa_intra_lote PASSED    [ 40%]
+tests/test_engine.py::test_radar_antifraude_outro_fundo PASSED           [ 60%]
+tests/test_engine.py::test_otimizador_lote_aumenta_valor_liquido PASSED  [ 80%]
+tests/test_engine.py::test_hot_reload_validadores_sem_deploy PASSED      [100%]
+
+============================== 5 passed in 0.10s ==============================
+```
 
 ## Estrutura
 
