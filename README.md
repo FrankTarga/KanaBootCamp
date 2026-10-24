@@ -15,12 +15,24 @@ docker compose up -d --build
 - Front-end: http://localhost:5173
 - API: http://localhost:8000/api/v1 · docs interativas em http://localhost:8000/docs
 
-Sem Docker (PowerShell, Windows):
+Sem Docker (PowerShell, Windows), um terminal por serviço:
 
 ```powershell
 cd backend
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements-dev.txt
+```
+
+```powershell
+# mock da Receita Federal (porta 8001)
+.\backend\.venv\Scripts\python -m uvicorn main:app --app-dir mock-receita --port 8001
+```
+
+```powershell
+# API (porta 8000); use 127.0.0.1, porque no Windows "localhost" tenta IPv6 antes e atrasa ~2 s
+$env:RECEITA_API_URL = "http://127.0.0.1:8001/api/cnpj/v1"
+$env:ADMIN_API_KEY = "troque-esta-chave"
+cd backend
 .\.venv\Scripts\python -m uvicorn app.main:app --port 8000
 ```
 
@@ -50,6 +62,7 @@ Testes do back-end: `cd backend; .\.venv\Scripts\python -m pytest tests -q`
 │       ├── services/         cliente da API (api.ts) + mock (mockLote.json)
 │       ├── types/            tipos TS espelhados do contrato (api.ts)
 │       └── App.tsx
+├── mock-receita/             mock da consulta de CNPJ da Receita (formato BrasilAPI)
 ├── samples/                  massas de demo para os jurados
 ├── prompts-ia/               histórico das conversas com IA (requisito do hackathon)
 └── docker-compose.yml
@@ -67,15 +80,36 @@ Testes do back-end: `cd backend; .\.venv\Scripts\python -m pytest tests -q`
 |---|---|---|
 | GET | `/api/v1/health` | estado do motor e estatísticas do estoque |
 | GET | `/api/v1/validators` | JSON de regras atual |
-| PUT | `/api/v1/validators` | troca as regras em memória e salva em disco (sem restart) |
+| PUT | `/api/v1/validators` | troca as regras em memória e salva em disco (sem restart); exige header `X-API-Key` = env `ADMIN_API_KEY` (401 sem a chave, 403 se a env não estiver definida) |
+| POST | `/api/v1/portfolio/validate` | `multipart/form-data`: `file` (carteira/estoque inteiro). Saída no formato do gabarito oficial; ver *Modo carteira* |
 | POST | `/api/v1/batches/validate` | `multipart/form-data`: `file`, `data_base?`, `taxa_mensal?`, `otimizar_lote?`, `validadores_override?` |
 
 Os tipos exatos estão em [`frontend/src/types/api.ts`](frontend/src/types/api.ts), espelho de [`backend/app/api_schemas.py`](backend/app/api_schemas.py). Mudou um, muda o outro no mesmo commit.
 
+- **Taxa de deságio: fonte única = `precificacao.taxa_mensal_percentual` do JSON** (hoje 2,0% a.m.). O `/health` devolve essa taxa já em decimal em `taxa_mensal_padrao` (0.02) para o Front preencher o input. O campo `taxa_mensal` do form só deve ser enviado quando o usuário altera a taxa (simulação); o 0,025 vale apenas se o JSON não tiver o bloco `precificacao`. A taxa usada de fato sempre volta em `meta.taxa_mensal_aplicada`. Para mudar a taxa do fundo: `PUT /validators`.
+- **Situação cadastral fail-closed:** o back-end consulta `RECEITA_API_URL` (BrasilAPI real ou `mock-receita/`) para cada CNPJ de sacado do lote, em paralelo e com cache de 1 h. CNPJ não encontrado ou consulta que falhou = nota recusada. Sem `RECEITA_API_URL`, a fonte é `backend/data/situacao_cadastral.json` (e CNPJ ausente do arquivo também é recusado).
+- **Prazo mínimo de cobrança:** `precificacao.prazo_minimo_cobranca_dias` (hoje 5). Nota que vence em menos dias, inclusive na própria data-base, é aceita se passar nas regras, mas paga deságio de 5 dias.
+- **API key na gaveta do gestor:** o gestor digita a chave e o Front guarda em `sessionStorage`. Nunca coloque a chave em `VITE_*`, porque vai parar no JavaScript público.
 - `validadores_override` (opcional): JSON de regras só para aquela validação. É o **what-if** do gestor e não persiste nada.
 - Header `X-Idempotent-Replay: true` quando o mesmo arquivo, com os mesmos parâmetros e a mesma versão de regras, já foi processado.
 - Erros sempre em `{"error": {"code", "message", "details"}}`.
 - `linha_csv` é a linha física do arquivo (cabeçalho = linha 1), igual ao número da linha no Excel.
+
+## Modo carteira (gabarito oficial)
+
+`POST /api/v1/portfolio/validate` (multipart `file`) ou a CLI julgam **cada linha de um estoque** contra as regras do fundo e devolvem exatamente o formato de `resultado_esperado_100k.json`: `[{"linha", "id", "status": "APROVADO" | "BARRADO", "barrado_por"?}]`.
+
+```powershell
+cd backend
+.\.venv\Scripts\python -m app.validar_carteira data\estoque_antecipe.csv saida.json
+```
+
+Diferenças em relação ao modo lote:
+- prazo e vencimento contam a partir da `DATA_AQUISICAO` da própria linha;
+- a concentração é **estática por fundo**: se a raiz do sacado passa do teto sobre as notas elegíveis daquele fundo, todas as notas dela são barradas (e ela só é avaliada em nota sem outro erro);
+- não há radar de duplicidade, porque o arquivo é o próprio estoque.
+
+`tests/test_conformidade_gabarito.py` compara as 100.554 linhas com o gabarito: **todas as regras que dependem só do kit batem linha a linha**. As únicas divergências são as 2.317 linhas de `SITUACAO_CADASTRAL_SACADO` (87 CNPJs), porque a situação usada pela organização não veio no kit, e a Receita real (BrasilAPI) dá outra situação para esses CNPJs sintéticos. A igualdade total fica marcada como pendência (`xfail` estrito) até a fonte oficial chegar.
 
 ## Diferenciais técnicos
 
