@@ -1,0 +1,25 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Criação de RFCs de Arquitetura e Testes
+Data: 24/10/2026
+
+================================================================================
+PROMPT
+================================================================================
+Analise o projeto Antecipe Pro e crie um conjunto de RFCs (Request for Comments) focadas exclusivamente no frontend, documentando decisões técnicas, problemas arquiteturais, inconsistências e propostas de melhoria. E gere um RFC para estratégia de testes do projeto.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+Documentação técnica e especificações formais de engenharia de software criadas na pasta docs/rfcs/.
+
+1. RFCs DE FRONTEND CRIADAS
+- RFC-001 (Arquitetura e Organização Modular): Proposta de desacoplamento do monólito App.tsx em módulos verticais por funcionalidade e extração de Custom Hooks (useLoteValidacao, useGestorRules, useHashRoute).
+- RFC-002 (Camada Padronizada de Comunicação HTTP): Padronização do cliente HTTP nativo (fetch) com controle de AbortController, tipagem detalhada de ApiError (extração de campo details do FastAPI) e retry para endpoints GET.
+- RFC-003 (Sincronização de Contratos e Tipagem Estrita): Alinhamento rigoroso dos schemas Pydantic v2 do backend com interfaces TypeScript (tipagem discriminada dos parâmetros de 12 validadores e inclusão das rotas de histórico SQLite).
+- RFC-004 (Gerenciamento de Estado e Ciclo de Vida Assíncrono): Eliminação de race conditions causadas por múltiplos uploads/simulações concorrentes através de contadores de sequência e máquina de estados determinística (IDLE, VALIDATING, SUCCESS, ERROR).
+- RFC-005 (Pipeline de Upload, Fusão e Validação de CSVs): Otimização do processamento de pastas arrastadas no navegador, leitura por streaming de blocos (Blob.slice) e validação prévia de tamanho (<50 MB) e colunas obrigatórias no client-side.
+- RFC-006 (Integridade de Dados Financeiros e Anti-Fraude): Diretriz de Cálculo Zero no Frontend (garantia de exatidão matemática consumindo exclusivamente a precificação do RuleEngine), tratamento de severidade FRAUDE/DUPLICIDADE e bloqueio de antecipações com duplicidade de mercado.
+
+2. RFC DE ESTRATÉGIA DE TESTES (RFC 0002)
+- Pirâmide de testes para o motor de antecipação: Testes unitários puros das 12 regras, testes de integração de API (FastAPI TestClient), conformidade com o gabarito oficial de 100.554 notas e testes de auditoria de histórico.
+- Cobertura de 100% dos cenários de fraude (Triplo Radar) e de regras de negócio (duplicatas, prazos, concentrações de cedente/sacado).

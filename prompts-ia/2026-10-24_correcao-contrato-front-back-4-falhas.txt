@@ -1,0 +1,29 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Resolução Cirúrgica das 4 Falhas de Contrato
+Data: 24/10/2026
+
+================================================================================
+PROMPT
+================================================================================
+Resuma quais são as 4 falhas entre frontend e backend e proponha a resolução cirúrgica na branch fix/contrato-front-back.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+Identificadas e detalhadas as 4 falhas críticas de contrato, resiliência e segurança:
+
+1. FALHA A: PUT /validators SEM CABEÇALHO X-API-Key
+- Causa: O backend exige X-API-Key para autenticar a alteração de regras do fundo. O frontend salvava apenas em memória e mascarava o erro 401 Unauthorized retornando { fonte: "demo" }.
+- Solução: Adicionado parâmetro apiKey e inclusão do header X-API-Key na requisição PUT de salvarValidadores.
+
+2. FALHA B: FALLBACK INDISCRIMINADO EM validarLote MASCARANDO ERROS 413 E 422
+- Causa: Ao receber 413 Payload Too Large (arquivo > 50 MB) ou 422 Unprocessable Entity (CSV vazio, colunas inválidas), o bloco catch do frontend ativava o mock simularLoteLocal(), exibindo uma análise de demonstração com 22 notas aprovadas em vez de exibir o erro real para o usuário.
+- Solução: Restrição do fallback de simulação estritamente para status === 0 (falha de rede / API offline). Erros com código HTTP da API são propagados como ApiError e exibidos na interface.
+
+3. FALHA C: TAXA MENSAL FIXA EM 2% IGNORANDO PADRÃO DO FUNDO
+- Causa: App.tsx mantinha estado fixo em 2.0% a.m., e o tipo HealthResponse não incluía o campo taxa_mensal_padrao retornado pelo backend. O frontend forçava o envio de taxa_mensal mesmo quando o operador não alterava o valor.
+- Solução: Tipagem de taxa_mensal_padrao no HealthResponse, carregamento dinâmico no mount do App.tsx e envio de taxa_mensal apenas quando alterada manualmente pelo usuário.
+
+4. FALHA D: CONFIGURAÇÃO INSEGURA NO .npmrc
+- Causa: O arquivo frontend/.npmrc continha strict-ssl=false e apontava para registro de terceiros, gerando 74 pacotes instalados sem validação de integridade criptográfica SSL.
+- Solução: Remoção do arquivo .npmrc inseguro e restauração do registry oficial npm com validação estrita de certificados SSL.

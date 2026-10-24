@@ -1,0 +1,29 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Segurança da Chave de Gestor (SessionStorage)
+Data: 24/10/2026
+
+================================================================================
+PROMPT
+================================================================================
+O gestor não tem onde digitar a chave. O código só lê VITE_ADMIN_API_KEY, gravada no build. Isso tem dois problemas: sem ela, ninguém consegue salvar regras; com ela, a chave fica no JavaScript público, que qualquer um pode ler. O certo é um campo de senha na gaveta, guardando a chave em sessionStorage e passando como salvarValidadores(config, chave). A função já aceita esse parâmetro.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+Implementada arquitetura segura de autenticação de regras de risco sem expor credenciais no bundle público.
+
+1. VULNERABILIDADE ELIMINADA
+- Anteriormente, a aplicação dependia de import.meta.env.VITE_ADMIN_API_KEY injetada em tempo de build, o que expunha a chave mestra em texto claro no JavaScript público client-side para qualquer usuário inspecionar.
+- Sem essa variável compilada, o gestor ficava impedido de persistir alterações de regras no endpoint protegido PUT /api/v1/validators.
+
+2. IMPLEMENTAÇÃO REALIZADA
+- GavetaGestor.tsx: Adicionado campo de senha estilizado (type="password" / type="text") com botão de alternância de visibilidade (Eye/EyeOff) e indicação de persistência de sessão.
+- Persistência em sessionStorage: A chave informada é sincronizada em tempo real com sessionStorage.setItem("admin_api_key", chave). Ao recarregar a página (F5) na mesma aba, o valor é recuperado automaticamente. Se o gestor apagar o campo, a chave é removida da sessão.
+- Repasse Dinâmico em App.tsx e api.ts:
+  - onAplicarRegras passou a receber (config, chave) e despachar para salvarValidadores(config, chave).
+  - Em api.ts, a resolução da chave segue precedência estrita: (1) chave explícita da gaveta -> (2) chave em sessionStorage -> (3) fallback de desenvolvimento.
+  - A chave é enviada no cabeçalho HTTP X-API-Key e validada no backend via hmac.compare_digest em tempo constante.
+
+3. VALIDAÇÃO
+- tsc --noEmit e vite build 100% aprovados.
+- Testado salvamento de políticas de risco com persistência em disco (validadores_antecipe.json) e recarga atômica em memória sem downtime.

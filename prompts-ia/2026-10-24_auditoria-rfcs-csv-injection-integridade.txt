@@ -1,0 +1,31 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Auditoria de Código pelas RFCs e Vulnerabilidade CSV Injection
+Data: 24/10/2026
+
+================================================================================
+PROMPT
+================================================================================
+Realize testes e analises seguindos as RFCs e seus proprios parâmetros e idenfique possiveis falhas e vulnerabilidades.
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+Auditoria técnica aprofundada confrontando o código com as RFCs (RFC-001 a RFC-006):
+
+1. VULNERABILIDADE DE SEGURANÇA: CSV FORMULA INJECTION (CWE-1236)
+- Localização: frontend/src/utils/formatters.ts (gerarCsvNotasAprovadas e gerarCsvRelatorioPendencias).
+- Detalhe: As funções exportam arquivos CSV diretamente para o Excel escapando apenas aspas duplas. Se campos como nome_sacado, nome_cedente ou nu_documento iniciarem com caracteres de controle de fórmulas (=, +, -, @, \t), o Excel executa fórmulas ou macros DDE quando o analista do FIDC abre a planilha.
+- Mitigação: Sanitizar campos prefixando apóstrofo (') quando o texto iniciar por caracteres executáveis.
+
+2. FALHA OPERACIONAL: CRASH POR ESTOURO DE PILHA (MAXIMUM CALL STACK SIZE)
+- Localização: frontend/src/utils/pastaNotas.ts (linha 48).
+- Detalhe: A função juntarCsvs utiliza linhas.push(...resto) para concatenar linhas de arquivos arrastados. Em motores V8/JavaScript, o limite de argumentos de pilha em chamadas de função gira em torno de 65.536 itens. Ao carregar um lote com mais de 65k notas (como a carteira de 100k), o navegador lança Uncaught RangeError: Maximum call stack size exceeded, travando a aba.
+- Mitigação: Iterar com for (const linha of resto) em vez do spread operator.
+
+3. CONDIÇÃO DE CORRIDA (RACE CONDITION) EM SIMULAÇÕES CONCORRENTES
+- Localização: frontend/src/App.tsx (função processarLote).
+- Detalhe: Ausência de identificador de sequência de requisição. Se uma análise demorada estiver em trânsito e o operador disparar uma simulação rápida, a resposta que chegar por último sobrescreve o estado da tela, podendo exibir dados defasados.
+- Mitigação: Implementar token/contador de sequência descartando respostas de requisições anteriores.
+
+4. DIVERGÊNCIA DE CONTRATO (BACKEND x FRONTEND)
+- Detalhe: Novos endpoints de auditoria SQLite adicionados no backend (/api/v1/historico/* e /api/v1/portfolio/validate) ainda não possuem interfaces TypeScript correspondentes em frontend/src/types/api.ts nem funções consumidoras em services/api.ts.

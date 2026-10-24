@@ -1,0 +1,38 @@
+PROJETO ANTECIPE PRO - HACKATHON ANTECIPE / KANABOOTCAMP
+Registro de Prompt e Resposta - Auditoria, Testes, Vulnerabilidades e Instabilidade
+Data: 24/10/2026
+
+================================================================================
+PROMPT
+================================================================================
+Analise e teste o projeto e indique possiveis instabilidade e vulnerabilidades
+
+================================================================================
+RESPOSTA (SUCINTA)
+================================================================================
+Realizada análise estática e execução completa da suíte de testes do ANTECIPE PRO (Back-end FastAPI, Front-end React/Vite e mock Receita Federal).
+
+1. RESULTADO DOS TESTES PRÁTICOS
+- Back-end: 172 testes executados via pytest com 100% de sucesso (0 falhas) e 99% de cobertura de código.
+- Gabarito Oficial: 100% de conformidade com o resultado esperado nas 100.554 linhas do estoque_antecipe.csv.
+- Front-end: Typecheck (tsc --noEmit) e build Vite concluídos com sucesso (0 erros de tipagem/compilação).
+- Carga de Estoque: Carregamento O(1) de 100k notas em RAM concluído em ~685 ms.
+
+2. VULNERABILIDADES DE SEGURANÇA IDENTIFICADAS
+- [ALTA] Broken Access Control / Sem Sessão: O endpoint /auth/login valida credenciais via scrypt, mas não gera tokens JWT nem cookies de sessão. As rotas sensíveis de histórico de lotes, notas e auditoria (/api/v1/historico/* e /batches/validate) estão públicas sem autenticação.
+- [ALTA] CORS Permissivo: Configuração com allow_origins=["*"] permite que qualquer site externo faça requisições cross-origin para a API local ou VPS.
+- [MÉDIA] DoS via Scrypt no Login: O cálculo do hash de senha usa scrypt (pesado em CPU), sem nenhum rate limit no endpoint /auth/login. Requisições em massa travam o worker do FastAPI.
+- [MÉDIA] Chave no sessionStorage: A ADMIN_API_KEY do gestor é guardada no sessionStorage do navegador, vulnerável a extração via eventuais ataques XSS.
+- [MÉDIA] Mascaramento de Erro de Upload: Se o upload para /batches/validate falhar por timeout ou queda de rede, o front-end cai no fallback demo e exibe dados sintéticos de mock, gerando risco operacional de falso positivo.
+
+3. INSTABILIDADES E RISCOS ARQUITETURAIS
+- Single Worker e Estado em Memória: O backend opera com 1 worker porque StockIndex e RuleEngine residem na RAM de um único processo. Múltiplos workers ou réplicas divergem as regras após um PUT /validators.
+- Concorrência no SQLite: Em histórico.py, o cálculo manual do próximo ID via SELECT MAX(id) gera risco de colisão sob concorrência, além da ausência de modo WAL no SQLite (bloqueios de escrita).
+- Pinning Estrito no Python: A dependência estrita pydantic==2.10.4 tentou compilação nativa em versões recentes (Python 3.14). Recomenda-se faixas semânticas (pydantic>=2.10.4,<3.0.0).
+- Pico de RAM em Uploads: Arquivos de até 50 MB são carregados inteiramente em RAM via file.read(), podendo disparar Out of Memory (OOM) sob múltiplos envios simultâneos.
+
+4. RECOMENDAÇÕES PRIORITÁRIAS
+- Implementar autenticação via Bearer Token (JWT) protegendo todas as rotas de histórico e validação.
+- Restringir CORS apenas para o domínio oficial da aplicação.
+- Ativar PRAGMA journal_mode=WAL no SQLite e usar geração automática de IDs.
+- Adicionar rate limiting (slowapi) no endpoint /auth/login.
