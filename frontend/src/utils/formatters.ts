@@ -80,6 +80,16 @@ export function dispararDownloadBlob(conteudo: string, nomeArquivo: string, tipo
 }
 
 /** Gera CSV do Lote de Notas Aprovadas no padrão de colunas exato do fundo ANTECIPE */
+/**
+ * Célula de texto para CSV aberto no Excel: aspas escapadas e, se começar com = + - @ ou tabulação,
+ * um apóstrofo na frente para o Excel não executar como fórmula (CSV injection, CWE-1236).
+ */
+function celulaTexto(valor: string | null | undefined): string {
+  let t = String(valor ?? "");
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+  return `"${t.replace(/"/g, '""')}"`;
+}
+
 export function gerarCsvNotasAprovadas(itens: ItemLote[], nomeFundo = "ANTECIPE FIDC", docFundo = "92.234.400/0001-80"): string {
   const cabecalho = [
     "NOME_FUNDO",
@@ -100,11 +110,11 @@ export function gerarCsvNotasAprovadas(itens: ItemLote[], nomeFundo = "ANTECIPE 
     .map((it) => [
       nomeFundo,
       docFundo,
-      `"${it.nome_cedente.replace(/"/g, '""')}"`,
+      celulaTexto(it.nome_cedente),
       formatarDocumento(it.doc_cedente),
-      `"${it.nome_sacado.replace(/"/g, '""')}"`,
+      celulaTexto(it.nome_sacado),
       formatarDocumento(it.doc_sacado),
-      `"${it.nu_documento.replace(/"/g, '""')}"`,
+      celulaTexto(it.nu_documento),
       it.tipo_recebivel,
       formatarValorCsv(it.valor_nominal),
       it.data_vencimento,
@@ -135,21 +145,21 @@ export function gerarCsvRelatorioPendencias(itens: ItemLote[]): string {
     .filter((it) => it.status === "RECUSADA")
     .map((it) => {
       const motivos = it.erros.map((e) => e.titulo_amigavel).join(" | ");
-      const explicacao = it.erros.map((e) => `[${e.codigo}]: ${e.mensagem_empresa}`).join(" | ");
+      const explicacao = it.erros.map((e) => `${e.titulo_amigavel}: ${e.mensagem_empresa}`).join(" | ");
       const acao = it.erros.map((e) => e.acao_recomendada).join(" | ");
 
       return [
         it.linha_csv,
-        `"${it.nu_documento.replace(/"/g, '""')}"`,
-        `"${it.nome_sacado.replace(/"/g, '""')}"`,
+        celulaTexto(it.nu_documento),
+        celulaTexto(it.nome_sacado),
         formatarDocumento(it.doc_sacado),
         formatarValorCsv(it.valor_nominal),
         it.data_vencimento,
         it.status,
         it.severidade,
-        `"${motivos.replace(/"/g, '""')}"`,
-        `"${explicacao.replace(/"/g, '""')}"`,
-        `"${acao.replace(/"/g, '""')}"`,
+        celulaTexto(motivos),
+        celulaTexto(explicacao),
+        celulaTexto(acao),
       ];
     });
 

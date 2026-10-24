@@ -226,6 +226,30 @@ export default function App() {
 
   const gestor = persona?.role === "GESTOR";
 
+  // sair limpa o que a pessoa enviou e os parâmetros dela: quem entrar depois não vê o lote de outra conta
+  const sair = () => {
+    setPersona(null);
+    setDrawerGestorAberto(false);
+    setResultado(simularLoteLocal({ dataBase: "22/10/2026", taxaMensal: 0.02, otimizarLote: true }));
+    setFonteDados("demo");
+    setArquivoAtual(null);
+    setLoteAtual(null);
+    setReplayIdempotente(false);
+    setComparativoRegras(null);
+    setMotivoFiltroAtivo(null);
+    setErroGeral(null);
+    setModo("lote");
+    setOtimizarLote(true);
+    setTaxaAlteradaManualmente(false);
+    obterHealth()
+      .then((res) => {
+        setTaxaMensalPercentual(res.dados.taxa_mensal_padrao !== undefined ? Number((res.dados.taxa_mensal_padrao * 100).toFixed(4)) : 2);
+        if (res.dados.data_base_padrao) setDataBase(res.dados.data_base_padrao);
+      })
+      .catch(() => setTaxaMensalPercentual(2));
+    irPara("envio");
+  };
+
   return (
     <div ref={raizRef} className="min-h-screen bg-creme font-sans">
       <PaginaInicial onEntrar={entrarNoPainel} />
@@ -245,7 +269,7 @@ export default function App() {
         onTela={irPara}
         onAbrirGestor={gestor ? () => setDrawerGestorAberto(true) : undefined}
         persona={persona}
-        onSair={() => { setPersona(null); setDrawerGestorAberto(false); requestAnimationFrame(() => topoDoPainel(false)); }}
+        onSair={sair}
         onCarregarDemo={handleCarregarDemo}
         carregando={carregando}
         temResultado={!!resultado}

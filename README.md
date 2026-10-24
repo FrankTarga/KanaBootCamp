@@ -4,6 +4,8 @@ Plataforma de antecipação de recebíveis para o **ANTECIPE FIDC** (Hackathon A
 
 A empresa (cedente) envia um lote CSV de notas e recebe na hora quanto vai receber, quais notas foram aprovadas e, para cada recusa, uma explicação em português claro com o que fazer. O gestor do fundo liga, desliga e ajusta as regras de risco pela tela ou pela API, sem deploy, e revalida o lote em tempo real.
 
+> **Para testar o sistema, siga o [Guia de uso](GUIA_DE_USO.md)**: como subir, cada tela do site e o roteiro de teste.
+
 ## Subir tudo
 
 Com Docker (Windows, Mac ou a VPS Linux), na raiz do repositório:
@@ -17,7 +19,7 @@ docker compose ps             # backend e mock-receita devem ficar "healthy"
 - Front-end: http://localhost:5173
 - API: http://localhost:8000/api/v1 · docs interativas em http://localhost:8000/docs
 - O mock da Receita só fica acessível na rede interna do compose; a API o consulta em `http://mock-receita:8001`.
-- Variáveis (no `.env`, todas opcionais): `VITE_API_URL`, que **na VPS precisa ser** `http://<IP-ou-dominio>:8000/api/v1`, porque é a URL que o navegador do usuário usa; `ADMIN_API_KEY`, que sem ela deixa tudo funcionando e só o `PUT` das regras responde 403; e `SITUACAO_FONTE` (`gabarito`, o padrão, `kanastra` ou `formato`; ver *Situação cadastral*).
+- O login com senha precisa do `.env` com `BANCA_SENHA` e `CEDENTE_SENHA` (sem elas o usuário não é criado). Outras variáveis: `VITE_API_URL`, que **na VPS precisa ser** `http://<IP-ou-dominio>:8000/api/v1`, porque é a URL que o navegador do usuário usa; `ADMIN_API_KEY`, que sem ela deixa tudo funcionando e só o `PUT` das regras responde 403; e `SITUACAO_FONTE` (`gabarito`, o padrão, `kanastra` ou `formato`; ver *Situação cadastral*).
 
 Sem Docker (PowerShell, Windows), um terminal por serviço:
 

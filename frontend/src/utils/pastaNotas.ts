@@ -45,7 +45,8 @@ export async function juntarCsvs(arquivos: File[]): Promise<File> {
     else if (atual.toUpperCase() !== cabecalho.toUpperCase()) {
       throw new Error(`O arquivo "${ordenados[i].name}" tem colunas diferentes dos outros. Todos precisam usar o mesmo cabeçalho.`);
     }
-    linhas.push(...resto.filter((l) => l.trim()));
+    // laço em vez de push(...): com centenas de milhares de linhas o spread estoura a pilha do navegador
+    for (const l of resto) if (l.trim()) linhas.push(l);
   });
   return new File([[cabecalho, ...linhas].join("\n") + "\n"], `lote-${arquivos.length}-arquivos.csv`, { type: "text/csv" });
 }
