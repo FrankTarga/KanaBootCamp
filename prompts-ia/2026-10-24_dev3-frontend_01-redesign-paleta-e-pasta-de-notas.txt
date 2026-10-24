@@ -6,8 +6,9 @@ Autor: Dev 3 (Estatístico/Quant) com Claude · Data: 24/10/2026
 ================================================================================
 PROMPT
 ================================================================================
-Use a paleta de cores da Kanastra e troque os tons do vídeo "purple-desert" para essa paleta. Primeira tela "arraste a pasta de notas", segunda com os números, terceira com
-gráficos. Mexa só no front; se for mudar a lógica, não altere.
+Use a paleta de cores da Kanastra e troque os tons do vídeo "purple-desert" para essa paleta.
+Primeira tela "arraste a pasta de notas", segunda com os números, terceira com gráficos. Mexa só no
+front; se for mudar a lógica, não altere.
 
 ================================================================================
 RESPOSTA (SUCINTA)
