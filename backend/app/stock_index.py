@@ -133,6 +133,7 @@ class StockIndex:
     data_aquisicao_max: date | None = None
     data_base_padrao: date = DATA_BASE_FALLBACK
     tempo_carga_ms: float = 0.0
+    versao: int = 0  # títulos comprados pela API desde a carga (ver registrar_novo_titulo_antecipe)
 
     def mapa_exposicao(self, dimensao: str, agrupamento: str) -> dict[str, float]:
         if dimensao == "sacado":
@@ -148,6 +149,7 @@ class StockIndex:
         data_aquisicao: str = "22/10/2026",
     ) -> None:
         """Write-Through: Registra um título liquidado diretamente na memória O(1)."""
+        self.versao += 1  # entra na chave do cache de idempotência: resposta antiga não volta depois de uma compra
         self.hashes_antecipe[hash_titulo] = data_aquisicao
         self.patrimonio_antecipe = round(self.patrimonio_antecipe + valor_nominal, 2)
         sac = normalizar_documento(doc_sacado)

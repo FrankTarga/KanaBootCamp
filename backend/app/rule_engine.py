@@ -1094,7 +1094,7 @@ class RuleEngine:
         return sum(1 for v in (config or self._config).validadores if v.ativo)
 
     def assinatura_estado(self) -> tuple[Any, ...]:
-        return self.versao_config, self._cadastro.versao
+        return self.versao_config, self._cadastro.versao, self.index.versao
 
     @staticmethod
     def taxa_configurada(config: ValidadoresConfig) -> float:

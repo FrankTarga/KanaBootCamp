@@ -155,3 +155,14 @@ def test_auditoria_de_regras_so_para_gestor(client):
     r = client.get(rota, headers=bearer(client, *CEDENTE))
     assert r.status_code == 403 and r.json()["error"]["code"] == "SEM_PERMISSAO"
     assert client.get(rota, headers=bearer(client, *GESTOR)).status_code == 200
+
+
+def test_reenvio_depois_da_compra_nao_volta_do_cache(client):
+    """O cache não pode devolver "aprovada" para nota que o fundo acabou de comprar."""
+    cedente = bearer(client, *CEDENTE)
+    batch_hash = validar(client, LOTE, cedente)
+    assert liquidar(client, batch_hash, cedente).status_code == 200
+    r = client.post("/api/v1/batches/validate", files={"file": ("l.csv", LOTE, "text/csv")}, headers=cedente)
+    assert r.headers["X-Idempotent-Replay"] == "false"
+    [comprada] = [i for i in r.json()["itens"] if i["nu_documento"] == "L1"]
+    assert comprada["status"] == "RECUSADA" and "DUPLICIDADE_FUNDO" in [e["codigo"] for e in comprada["erros"]]
