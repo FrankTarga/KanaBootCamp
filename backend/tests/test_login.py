@@ -102,3 +102,48 @@ def test_sem_banca_senha_ninguem_entra(pasta_dados, monkeypatch):
 def test_hash_tem_salt_e_confere():
     a, b = hash_senha("x"), hash_senha("x")
     assert a != b and senha_confere("x", a) and not senha_confere("y", a)
+
+
+def test_login_com_usuario_do_banco_acid(client, pasta_dados):
+    import app.database as db_mod
+
+    db_mod.salvar_usuario(
+        email="analista.acid@antecipe.com.br",
+        senha="SenhaForteAcid123",
+        nome="Analista ACID",
+        cargo="Analista de Risco",
+        role="GESTOR",
+    )
+
+    # Tentativa com senha errada
+    r_errada = login(client, "analista.acid@antecipe.com.br", "senha_incorreta")
+    assert r_errada.status_code == 401
+    assert r_errada.json()["error"]["code"] == "CREDENCIAIS_INVALIDAS"
+
+    # Login com sucesso pelo endpoint /auth/login
+    r_ok = login(client, "analista.acid@antecipe.com.br", "SenhaForteAcid123")
+    assert r_ok.status_code == 200
+    dados = r_ok.json()
+    assert dados["email"] == "analista.acid@antecipe.com.br"
+    assert dados["role"] == "GESTOR"
+    assert dados["nome"] == "Analista ACID"
+    assert "token" in dados
+
+    # Acessa /auth/me usando o token gerado
+    r_me = me(client, dados["token"])
+    assert r_me.status_code == 200
+    assert r_me.json()["email"] == "analista.acid@antecipe.com.br"
+
+
+def test_startup_semeia_usuarios_no_banco_acid(client, pasta_dados):
+    import app.database as db_mod
+
+    u_banca = db_mod.autenticar_usuario(EMAIL, SENHA)
+    assert u_banca is not None
+    assert u_banca["email"] == EMAIL
+    assert u_banca["role"] == "GESTOR"
+
+    u_cedente = db_mod.autenticar_usuario("empresa@antecipe.com.br", SENHA_CEDENTE)
+    assert u_cedente is not None
+    assert u_cedente["role"] == "CEDENTE"
+

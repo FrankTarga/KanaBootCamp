@@ -327,7 +327,10 @@ export default function App() {
         )}
         {tela === "historico" && (
           // só marca "aberto agora" quando o lote veio do servidor (o demo local não está no banco)
-          <TelaHistorico batchHashAtual={fonteDados === "api" ? resultado?.meta.batch_hash_idempotencia ?? null : null} />
+          <TelaHistorico
+            batchHashAtual={fonteDados === "api" ? resultado?.meta.batch_hash_idempotencia ?? null : null}
+            ehGestor={gestor}
+          />
         )}
       </main>
       </div>

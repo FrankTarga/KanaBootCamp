@@ -11,6 +11,7 @@ import { Cartao } from "./TelaEstatistica";
 interface TelaHistoricoProps {
   /** hash do arquivo aberto agora, para marcar "este lote" na lista */
   batchHashAtual: string | null;
+  ehGestor?: boolean;
 }
 
 const POR_PAGINA = 25;
@@ -29,7 +30,7 @@ function Etiqueta({ children, tom }: { children: string; tom: "ambar" | "cinza" 
   return <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${cor}`}>{children}</span>;
 }
 
-export function TelaHistorico({ batchHashAtual }: TelaHistoricoProps) {
+export function TelaHistorico({ batchHashAtual, ehGestor = false }: TelaHistoricoProps) {
   const [lotes, setLotes] = useState<HistoricoLote[]>([]);
   const [totalLotes, setTotalLotes] = useState(0);
   const [regras, setRegras] = useState<MudancaRegras[]>([]);
@@ -83,7 +84,15 @@ export function TelaHistorico({ batchHashAtual }: TelaHistoricoProps) {
     setCarregando(true);
     setErro(null);
     try {
-      const [l, r] = await Promise.all([listarHistoricoLotes(POR_PAGINA, 0), listarHistoricoRegras(10, 0)]);
+      const promessaLotes = listarHistoricoLotes(POR_PAGINA, 0);
+      const promessaRegras = ehGestor
+        ? listarHistoricoRegras(10, 0).catch((e) => {
+            console.warn("Não foi possível ler o histórico de regras:", e);
+            return { itens: [], total: 0, limite: 10, offset: 0 };
+          })
+        : Promise.resolve({ itens: [], total: 0, limite: 10, offset: 0 });
+
+      const [l, r] = await Promise.all([promessaLotes, promessaRegras]);
       setLotes(l.itens); setTotalLotes(l.total);
       setRegras(r.itens); setTotalRegras(r.total);
     } catch (e) {
@@ -91,7 +100,7 @@ export function TelaHistorico({ batchHashAtual }: TelaHistoricoProps) {
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [ehGestor]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -306,22 +315,24 @@ export function TelaHistorico({ batchHashAtual }: TelaHistoricoProps) {
         </div>
       )}
 
-      <Cartao titulo="Mudanças nas regras" nota="Cada vez que o gestor salvou novas regras">
-        {regras.length === 0 ? (
-          <p className="py-4 text-center text-sm text-slate-500">{erro ? "Sem conexão com o servidor." : "As regras ainda não foram alteradas pelo painel do gestor."}</p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-creme-linha">
-            {regras.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2.5 text-sm">
-                <span className="font-semibold text-slate-800">Versão {r.versao_config}</span>
-                <span className="text-slate-600">{r.regras_ativas} regras ativas</span>
-                <span className="tabular-nums text-slate-500">{fData(r.criado_em)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {totalRegras > regras.length && <p className="text-xs text-slate-500">Mostrando as {regras.length} mais recentes de {fInt(totalRegras)}.</p>}
-      </Cartao>
+      {ehGestor && (
+        <Cartao titulo="Mudanças nas regras" nota="Cada vez que o gestor salvou novas regras">
+          {regras.length === 0 ? (
+            <p className="py-4 text-center text-sm text-slate-500">{erro ? "Sem conexão com o servidor." : "As regras ainda não foram alteradas pelo painel do gestor."}</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-creme-linha">
+              {regras.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2.5 text-sm">
+                  <span className="font-semibold text-slate-800">Versão {r.versao_config}</span>
+                  <span className="text-slate-600">{r.regras_ativas} regras ativas</span>
+                  <span className="tabular-nums text-slate-500">{fData(r.criado_em)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {totalRegras > regras.length && <p className="text-xs text-slate-500">Mostrando as {regras.length} mais recentes de {fInt(totalRegras)}.</p>}
+        </Cartao>
+      )}
     </div>
   );
 }

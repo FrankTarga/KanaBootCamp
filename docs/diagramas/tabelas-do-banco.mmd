@@ -1,0 +1,73 @@
+erDiagram
+    USUARIOS ||--o{ LOTES : "envia"
+    USUARIOS ||--o{ MUDANCAS_REGRAS : "altera"
+    LOTES ||--o{ NOTAS_LOTE : "contém"
+    NOTAS_LOTE ||--o{ ERROS_NOTA : "tem motivos"
+
+    USUARIOS {
+        INTEGER id PK
+        TEXT email UK "login, sempre minúsculo"
+        TEXT senha_hash "scrypt com salt, nunca a senha"
+        TEXT nome
+        TEXT cargo
+        TEXT role "CEDENTE ou GESTOR"
+        TEXT criado_em
+    }
+
+    LOTES {
+        INTEGER id PK
+        INTEGER usuario_id FK "quem enviou"
+        TEXT criado_em
+        TEXT batch_hash "impressão digital do arquivo"
+        TEXT chave_idempotencia "arquivo + parâmetros + versão das regras"
+        TEXT modo "lote ou carteira"
+        TEXT data_base
+        REAL taxa_mensal
+        INTEGER versao_config "versão das regras usada"
+        INTEGER what_if "1 = teste do gestor"
+        INTEGER replay "1 = resposta guardada"
+        INTEGER total_notas
+        INTEGER qtd_aprovadas
+        INTEGER qtd_recusadas
+        INTEGER qtd_alertas_fraude
+        REAL valor_bruto_total
+        REAL valor_liquido_receber
+        REAL tempo_processamento_ms
+    }
+
+    NOTAS_LOTE {
+        INTEGER id PK
+        INTEGER lote_id FK
+        INTEGER linha_csv
+        TEXT nu_documento
+        TEXT nu_documento_busca "sem zeros à esquerda, para a busca"
+        TEXT doc_cedente
+        TEXT doc_sacado
+        TEXT tipo_recebivel
+        REAL valor_nominal
+        TEXT data_vencimento
+        INTEGER prazo_dias
+        REAL desagio_reais
+        REAL valor_liquido
+        TEXT status "APROVADA ou RECUSADA"
+        TEXT severidade "OK, REGRA_NEGOCIO, DUPLICIDADE ou FRAUDE"
+        INTEGER salva_pelo_otimizador
+    }
+
+    ERROS_NOTA {
+        INTEGER nota_id FK
+        INTEGER ordem
+        TEXT codigo
+        TEXT titulo_amigavel
+        TEXT mensagem_empresa "o que aconteceu"
+        TEXT acao_recomendada "como resolver"
+    }
+
+    MUDANCAS_REGRAS {
+        INTEGER id PK
+        INTEGER usuario_id FK "gestor que salvou"
+        TEXT criado_em
+        INTEGER versao_config
+        INTEGER regras_ativas
+        TEXT config_json "configuração completa"
+    }
