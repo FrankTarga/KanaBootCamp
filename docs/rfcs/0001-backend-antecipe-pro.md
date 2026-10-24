@@ -177,7 +177,8 @@ sequenceDiagram
 | POST | `/batches/validate` | multipart: `file`, `data_base?`, `taxa_mensal?`, `otimizar_lote?`, `validadores_override?` | `BatchValidationResponse` |
 
 - **Zero-deploy:** validação semântica (códigos suportados e únicos, tipos e faixas dos parâmetros, método de precificação), escrita atômica (`mkstemp` + `os.replace`), troca da config sob lock e `versao_config++`.
-- **Idempotência:** cache LRU (64 entradas) com chave `(sha256 do arquivo, data_base, taxa, otimizar, versao_config, versão do cadastro, hash do override)`. Quando a resposta vem do cache, o header é `X-Idempotent-Replay: true`.
+- **Idempotência:** cache LRU (64 entradas) com chave `(sha256 do arquivo, data_base, taxa, otimizar, versao_config, versão do cadastro, hash do override, modo)`. Ele guarda os **bytes do JSON**, e não o objeto, e só para respostas com até `CACHE_MAX_NOTAS` notas (5.000). Antes, cada carteira de 100k prendia ~360 MB: medido no Docker, 3 uploads levavam a API de 93 MB a 1,4 GB; agora vai de 86 a 261 MB. Quando a resposta vem do cache, o header é `X-Idempotent-Replay: true`.
+- **Serialização:** a rota devolve `model_dump_json()` direto, em vez de deixar o FastAPI revalidar e reconverter a resposta. Com 100k notas, o `modo=carteira` caiu de 18,2 s para 8,5 s e o `/portfolio/validate` de ~10 s para 5,9 s, com conteúdo idêntico. O `response_model` continua no decorador, para o `/docs`.
 - **Erros:** sempre `{"error": {"code", "message", "details"}}`; 413 para arquivo grande, 500 sem stack trace, com `X-Request-ID` em toda resposta.
 - **Observabilidade:** logs `key=value` com `request_id` e sem documentos (CPF/CNPJ).
 
@@ -202,6 +203,24 @@ Entregas: `RuleEngine.validar_carteira`, `POST /api/v1/portfolio/validate`, a CL
 A organização publicou depois o `cnpj_situacao_mock.csv` (3.041 CNPJs, 42 não-ATIVA), mas ele **contradiz o gabarito**: não há nenhum CNPJ irregular em comum. Dos 87 do gabarito, 55 aparecem como ATIVA no arquivo e 32 estão ausentes; e o arquivo barraria 694 linhas que o gabarito aprova. Nenhuma leitura alternativa (cedente, raiz, ausente = irregular) concilia os dois. A documentação de banking da Kanastra (banking-docs) cobre boletos, CNAB, nota comercial, contas e PIX, e não tem consulta de situação cadastral.
 
 Decisão do time: o mock-receita escolhe a fonte por `SITUACAO_FONTE`, com `gabarito` como padrão (100% de igualdade), `kanastra` (arquivo oficial; CNPJ ausente = ATIVA) e `formato` (só a checagem do CNPJ, como sugeriu o tech lead). O mock falha ao subir se a fonte for inválida ou se o arquivo dela faltar, para não aprovar todo mundo em silêncio. A API não muda: ela continua consultando o mock e continua fail-closed se ele cair. Evidência no Docker, com as 100.554 linhas: `gabarito` 100.554 iguais, `kanastra` 97.460, `formato` 98.237, e em todas as fontes as outras regras batem em 100%.
+
+### Histórico e auditoria (SQLite)
+
+O estoque continua em RAM para leitura O(1). O `sqlite3` da biblioteca padrão guarda só a auditoria, em `backend/data/historico.db` (volume do Docker, fora do Git):
+
+| tabela | o que entra | quando |
+|---|---|---|
+| `lotes` | chave de idempotência completa (sha256 de arquivo, parâmetros e versão das regras), `batch_hash` do arquivo, modo, data-base, taxa, what-if, se veio do cache e os totais (notas, aprovadas, recusadas, fraude, bruto, líquido, tempo) | todo `POST /batches/validate` bem-sucedido, inclusive as repetições servidas pelo cache |
+| `mudancas_regras` | versão, regras ativas e o JSON completo aplicado | todo `PUT /validators` aceito (um 401 ou 422 não grava) |
+
+Decisões:
+- **Não guarda o payload da resposta** (uma carteira de 100k daria ~65 MB por linha).
+- **Não substitui o cache de idempotência**, que continua em memória. Uma idempotência só pelo hash do arquivo devolveria um resultado antigo depois de uma mudança de regra.
+- Uma conexão por operação, segura com as threads do FastAPI.
+- Se o SQLite falhar, a validação segue e o erro vai para o log.
+- Leitura paginada em `GET /historico/lotes` e `GET /historico/regras` (`limite` de 1 a 200, `offset`).
+
+Verificado: o histórico sobrevive à recriação do container.
 
 ### Painel de recusas (`analise_recusas`)
 
