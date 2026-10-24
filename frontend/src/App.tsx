@@ -6,6 +6,7 @@ import { TelaEstatistica } from "./components/telas/TelaEstatistica";
 import { StatusApi } from "./components/StatusApi";
 import { TabelaRecebiveis } from "./components/TabelaRecebiveis";
 import { GavetaGestor } from "./components/GavetaGestor";
+import { LoginScreen, type Persona } from "./components/LoginScreen";
 import { validarLote, salvarValidadores, simularLoteLocal, obterHealth } from "./services/api";
 import { formatarMoedaCompacta } from "./utils/formatters";
 import type { BatchValidationResponse, ComparativoRegras, FonteDados, ModoValidacao, ValidadoresConfig } from "./types/api";
@@ -16,7 +17,25 @@ const telaDoEndereco = (): Tela => {
   return TELAS.includes(h) ? h : "envio";
 };
 
+const personaSalva = (): Persona | null => {
+  try {
+    return JSON.parse(localStorage.getItem("antecipe_persona") ?? "null");
+  } catch {
+    return null;
+  }
+};
+
 export default function App() {
+  // Perfil da demonstração (cedente ou gestor); sobrevive ao F5
+  const [persona, setPersonaEstado] = useState<Persona | null>(personaSalva);
+  const setPersona = (p: Persona | null) => {
+    try {
+      if (p) localStorage.setItem("antecipe_persona", JSON.stringify(p));
+      else localStorage.removeItem("antecipe_persona");
+    } catch { /* navegador sem storage: só não lembra o perfil */ }
+    setPersonaEstado(p);
+  };
+
   // Parâmetros da operação
   const [dataBase, setDataBase] = useState<string>("22/10/2026");
   const [taxaMensalPercentual, setTaxaMensalPercentual] = useState<number>(2.0);
@@ -129,12 +148,19 @@ export default function App() {
   const demo = fonteDados === "demo";
   const motorDesligado = !!arquivoAtual && demo; // enviou arquivo, mas a API não respondeu: números do lote de demonstração
 
+  if (!persona) {
+    return <LoginScreen onLogin={(p) => { setPersona(p); setDrawerGestorAberto(p.role === "GESTOR"); }} />;
+  }
+  const gestor = persona.role === "GESTOR";
+
   return (
     <div className="min-h-screen bg-creme font-sans">
       <MenuLateral
         tela={tela}
         onTela={irPara}
-        onAbrirGestor={() => setDrawerGestorAberto(true)}
+        onAbrirGestor={gestor ? () => setDrawerGestorAberto(true) : undefined}
+        persona={persona}
+        onSair={() => { setPersona(null); setDrawerGestorAberto(false); }}
         onCarregarDemo={handleCarregarDemo}
         carregando={carregando}
         temResultado={!!resultado}
@@ -194,7 +220,7 @@ export default function App() {
       </main>
 
       <GavetaGestor
-        aberto={drawerGestorAberto}
+        aberto={gestor && drawerGestorAberto}
         onFechar={() => setDrawerGestorAberto(false)}
         onAplicarRegras={async (config) => { await salvarValidadores(config); await processarLote(arquivoAtual, config, false); }}
         onSimularWhatIf={(config) => processarLote(arquivoAtual, config, true)}

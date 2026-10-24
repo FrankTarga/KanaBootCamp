@@ -171,6 +171,15 @@ export async function obterHealth(): Promise<{ dados: HealthResponse; fonte: Fon
   }
 }
 
+export async function entrar(email: string, senha: string) {
+  const res = await requisitar<{ email: string; nome: string; cargo: string; role: "CEDENTE" | "GESTOR" }>("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, senha }),
+  });
+  return res.dados;
+}
+
 export async function obterValidadores(): Promise<{ dados: ValidadoresConfig; fonte: FonteDados }> {
   if (FORCAR_MOCK) {
     return { dados: validadoresEmMemoria, fonte: "demo" };

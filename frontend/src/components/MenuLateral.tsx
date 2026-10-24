@@ -1,13 +1,16 @@
 import { useState, type ComponentType } from "react";
-import { BarChart3, FolderUp, ListChecks, Menu, Receipt, SlidersHorizontal, Wand2, X } from "lucide-react";
+import { BarChart3, FolderUp, ListChecks, LogOut, Menu, Receipt, SlidersHorizontal, Wand2, X } from "lucide-react";
+import type { Persona } from "./LoginScreen";
 
 export type Tela = "envio" | "resumo" | "estatistica" | "notas";
 
 interface MenuLateralProps {
   tela: Tela;
   onTela: (t: Tela) => void;
-  onAbrirGestor: () => void;
+  onAbrirGestor?: () => void; // ausente = perfil sem permissão para editar regras
   onCarregarDemo: () => void;
+  persona: Persona;
+  onSair: () => void;
   carregando: boolean;
   temResultado: boolean;
   liquidoCompacto: string | null;
@@ -38,7 +41,7 @@ const ITENS: { id: Tela; rotulo: string; dica: string; Icone: ComponentType<{ cl
 
 export function MenuLateral(props: MenuLateralProps) {
   const [aberto, setAberto] = useState(false);
-  const { tela, onTela, onAbrirGestor, onCarregarDemo, carregando, temResultado, liquidoCompacto, qtdRecusadas, fonte, nomeLote } = props;
+  const { tela, onTela, onAbrirGestor, onCarregarDemo, carregando, temResultado, liquidoCompacto, qtdRecusadas, fonte, nomeLote, persona, onSair } = props;
   const ir = (t: Tela) => { onTela(t); setAberto(false); };
 
   const conteudo = (
@@ -72,11 +75,13 @@ export function MenuLateral(props: MenuLateralProps) {
       </nav>
 
       <div className="flex flex-col gap-1 border-t border-white/10 pt-6">
-        <p className="eyebrow px-3 pb-1 text-creme/40">Gestor do fundo</p>
-        <button type="button" onClick={() => { onAbrirGestor(); setAberto(false); }}
-          className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-creme/80 hover:bg-white/[0.06] hover:text-creme focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
-          <SlidersHorizontal className="h-5 w-5 text-creme/60" /> Regras do fundo
-        </button>
+        <p className="eyebrow px-3 pb-1 text-creme/40">{onAbrirGestor ? "Gestor do fundo" : "Atalhos"}</p>
+        {onAbrirGestor && (
+          <button type="button" onClick={() => { onAbrirGestor(); setAberto(false); }}
+            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-creme/80 hover:bg-white/[0.06] hover:text-creme focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
+            <SlidersHorizontal className="h-5 w-5 text-creme/60" /> Regras do fundo
+          </button>
+        )}
         <button type="button" onClick={() => { onCarregarDemo(); setAberto(false); }} disabled={carregando}
           className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-creme/80 hover:bg-white/[0.06] hover:text-creme disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
           <Wand2 className="h-5 w-5 text-creme/60" /> Carregar lote demo
@@ -89,6 +94,17 @@ export function MenuLateral(props: MenuLateralProps) {
           {fonte === "api" ? "Motor de análise ligado" : "Modo demonstração"}
         </p>
         <p className="mt-1 truncate">{nomeLote ? `Lote: ${nomeLote}` : "Nenhum arquivo enviado ainda"}</p>
+      </div>
+
+      <div className="-mt-4 flex items-center gap-3 rounded-2xl border border-white/10 px-4 py-3 text-xs">
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-semibold text-creme">{persona.nome}</span>
+          <span className="block truncate text-creme/50">{persona.cargo}</span>
+        </span>
+        <button type="button" onClick={() => { onSair(); setAberto(false); }} title="Sair / trocar perfil" aria-label="Sair / trocar perfil"
+          className="rounded-lg p-2 text-creme/70 hover:bg-white/10 hover:text-creme focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto">
+          <LogOut className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
