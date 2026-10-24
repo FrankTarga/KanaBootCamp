@@ -26,10 +26,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api_schemas import (
     BatchValidationResponse,
+    DetalheLoteHistorico,
     ErroApi,
     HealthResponse,
     PaginaHistoricoLotes,
     PaginaMudancasRegras,
+    PaginaOcorrenciasNota,
     ValidadoresConfig,
 )
 from .br_utils import formatar_data_br, parse_data_br
@@ -427,7 +429,14 @@ def validar_lote(
         "valor_liquido_receber": resumo.valor_liquido_receber,
         "tempo_processamento_ms": meta.tempo_processamento_ms,
     }
-    _registrar_historico(request, "registrar_lote", chave_idempotencia=chave_hash, replay=False, **numeros)
+    _registrar_historico(
+        request,
+        "registrar_lote",
+        chave_idempotencia=chave_hash,
+        replay=False,
+        itens=resultado.itens if modo_validacao == "lote" else None,  # carteira: só o resumo
+        **numeros,
+    )
     if resultado.resumo.total_notas <= settings.cache_max_notas:  # carteira de 100k não fica presa na memória
         cache.guardar(chave, (corpo, numeros))
     logger.info(
@@ -469,6 +478,32 @@ def historico_lotes(
     """Lotes validados, do mais recente para o mais antigo (inclui repetições servidas pelo cache)."""
     itens, total = request.app.state.historico.listar_lotes(limite, offset)
     return PaginaHistoricoLotes(total=total, limite=limite, offset=offset, itens=itens)
+
+
+@router.get("/historico/lotes/{lote_id}", response_model=DetalheLoteHistorico)
+def historico_lote(
+    request: Request,
+    lote_id: int,
+    limite: int = Query(500, ge=1, le=10_000),
+    offset: int = Query(0, ge=0),
+) -> DetalheLoteHistorico:
+    """Resumo e notas (com motivos de recusa) de um lote antigo. No modo carteira só o resumo é guardado."""
+    detalhe = request.app.state.historico.obter_lote(lote_id, limite, offset)
+    if detalhe is None:
+        raise ErroEntrada("LOTE_NAO_ENCONTRADO", f"Lote {lote_id} não está no histórico.", 404)
+    return DetalheLoteHistorico(**detalhe)
+
+
+@router.get("/historico/notas", response_model=PaginaOcorrenciasNota)
+def historico_notas(
+    request: Request,
+    nu_documento: str = Query(..., min_length=1, max_length=100, description="número da nota (zeros à esquerda são ignorados)"),
+    limite: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> PaginaOcorrenciasNota:
+    """Em quais lotes um número de nota apareceu e o que aconteceu com ela em cada um."""
+    itens, total = request.app.state.historico.buscar_nota(nu_documento, limite, offset)
+    return PaginaOcorrenciasNota(total=total, limite=limite, offset=offset, itens=itens)
 
 
 @router.get("/historico/regras", response_model=PaginaMudancasRegras)

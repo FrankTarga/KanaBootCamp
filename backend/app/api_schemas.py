@@ -240,6 +240,66 @@ class MudancaRegras(BaseModel):
     config: dict[str, Any]
 
 
+class NotaHistorico(BaseModel):
+    linha_csv: int
+    nu_documento: str
+    nome_cedente: str
+    doc_cedente: str
+    nome_sacado: str
+    doc_sacado: str
+    tipo_recebivel: str
+    valor_nominal: float
+    data_vencimento: str
+    prazo_dias: int
+    desagio_reais: float
+    valor_liquido: float
+    status: StatusNota
+    severidade: Severidade
+    salva_pelo_otimizador: bool
+    erros: list[ErroNota]
+
+
+class DetalheLoteHistorico(BaseModel):
+    lote: HistoricoLote
+    notas_de_lote_id: int  # repetição do cache aponta para o envio original
+    notas_guardadas: bool  # False no modo carteira (só o resumo é guardado)
+    total_notas_guardadas: int
+    limite: int
+    offset: int
+    notas: list[NotaHistorico]
+
+
+class OcorrenciaNota(BaseModel):
+    lote_id: int
+    criado_em: str
+    modo: str
+    what_if: bool
+    batch_hash: str
+    linha_csv: int
+    nu_documento: str
+    nome_cedente: str
+    doc_cedente: str
+    nome_sacado: str
+    doc_sacado: str
+    tipo_recebivel: str
+    valor_nominal: float
+    data_vencimento: str
+    prazo_dias: int
+    desagio_reais: float
+    valor_liquido: float
+    status: StatusNota
+    severidade: Severidade
+    salva_pelo_otimizador: bool
+    codigos_erro: list[str]
+
+
+class PaginaOcorrenciasNota(BaseModel):
+    total: int
+    limite: int
+    offset: int
+    itens: list[OcorrenciaNota]
+
+
 class PaginaHistoricoLotes(BaseModel):
     total: int
     limite: int

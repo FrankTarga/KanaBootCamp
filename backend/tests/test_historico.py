@@ -103,3 +103,73 @@ def test_falha_no_historico_nao_derruba_a_validacao(client, monkeypatch):
     r = enviar(client)
     assert r.status_code == 200 and r.json()["resumo"]["total_notas"] == 2
     assert client.get("/api/v1/historico/lotes").json()["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Notas e erros dos lotes antigos
+# ---------------------------------------------------------------------------
+
+def _ultimo_lote_id(c):
+    return c.get("/api/v1/historico/lotes", params={"limite": 1}).json()["itens"][0]["id"]
+
+
+def test_detalhe_de_lote_antigo_traz_notas_e_motivos(client):
+    resposta = enviar(client).json()
+    detalhe = client.get(f"/api/v1/historico/lotes/{_ultimo_lote_id(client)}").json()
+    assert detalhe["notas_guardadas"] is True and detalhe["total_notas_guardadas"] == 2
+    aprovada, recusada = detalhe["notas"]
+    assert (aprovada["nu_documento"], aprovada["status"], aprovada["erros"]) == ("H1", "APROVADA", [])
+    assert recusada["status"] == "RECUSADA" and recusada["erros"][0]["codigo"] == "VALOR_MINIMO"
+    # é a mesma explicação que a empresa recebeu na hora
+    assert recusada["erros"] == resposta["itens"][1]["erros"]
+    assert recusada["valor_liquido"] == resposta["itens"][1]["valor_liquido"]
+
+
+def test_repeticao_do_cache_mostra_as_notas_do_envio_original(client):
+    enviar(client)
+    original = _ultimo_lote_id(client)
+    enviar(client)
+    replay = _ultimo_lote_id(client)
+    detalhe = client.get(f"/api/v1/historico/lotes/{replay}").json()
+    assert detalhe["lote"]["replay"] is True
+    assert detalhe["notas_de_lote_id"] == original and detalhe["total_notas_guardadas"] == 2
+
+
+def test_modo_carteira_guarda_so_o_resumo(client):
+    enviar(client, modo="carteira")
+    detalhe = client.get(f"/api/v1/historico/lotes/{_ultimo_lote_id(client)}").json()
+    assert detalhe["lote"]["modo"] == "carteira" and detalhe["lote"]["total_notas"] == 2
+    assert detalhe["notas_guardadas"] is False and detalhe["notas"] == []
+
+
+def test_paginacao_das_notas_e_lote_inexistente(client):
+    enviar(client)
+    lote_id = _ultimo_lote_id(client)
+    pagina = client.get(f"/api/v1/historico/lotes/{lote_id}", params={"limite": 1, "offset": 1}).json()
+    assert pagina["total_notas_guardadas"] == 2 and [n["nu_documento"] for n in pagina["notas"]] == ["H2"]
+    r = client.get("/api/v1/historico/lotes/999999")
+    assert r.status_code == 404 and r.json()["error"]["code"] == "LOTE_NAO_ENCONTRADO"
+
+
+def test_busca_por_numero_da_nota_ignora_zeros_a_esquerda(client):
+    zeros = montar_csv(linha_csv(SACADO_LIVRE, "000123", "1000,00", "21/11/2026"))
+    client.post("/api/v1/batches/validate", files={"file": ("a.csv", zeros, "text/csv")})
+    sem_zeros = montar_csv(linha_csv(SACADO_LIVRE, "123", "50,00", "22/11/2026"))
+    client.post("/api/v1/batches/validate", files={"file": ("b.csv", sem_zeros, "text/csv")})
+    pagina = client.get("/api/v1/historico/notas", params={"nu_documento": "0000123"}).json()
+    assert pagina["total"] == 2
+    recente, antiga = pagina["itens"]
+    assert (recente["nu_documento"], recente["status"], recente["codigos_erro"]) == ("123", "RECUSADA", ["VALOR_MINIMO"])
+    assert (antiga["nu_documento"], antiga["status"], antiga["codigos_erro"]) == ("000123", "APROVADA", [])
+    assert client.get("/api/v1/historico/notas", params={"nu_documento": "inexistente"}).json()["total"] == 0
+    assert client.get("/api/v1/historico/notas").status_code == 422  # nu_documento é obrigatório
+
+
+def test_lote_e_notas_entram_juntos_ou_nao_entram(client, monkeypatch):
+    """Se a gravação das notas falhar depois do resumo, nada fica gravado (transação única)."""
+    def quebra(_nu):
+        raise ValueError("falha no meio da gravação das notas")
+
+    monkeypatch.setattr(historico_mod, "normalizar_nu_documento", quebra)
+    assert enviar(client).status_code == 200  # a validação segue
+    assert client.get("/api/v1/historico/lotes").json()["total"] == 0
