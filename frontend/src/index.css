@@ -91,12 +91,6 @@
     background-size: 28px 28px;
   }
 
-  /* Título de seção no estilo "NOSSOS NÚMEROS": fino, maiúsculo e espaçado */
-  .titulo-secao {
-    @apply font-display font-light uppercase tracking-[0.04em] text-4xl sm:text-5xl;
-    text-wrap: balance;
-  }
-
   .eyebrow {
     @apply text-[11px] font-semibold uppercase tracking-[0.18em];
   }
