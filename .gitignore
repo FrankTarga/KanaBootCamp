@@ -29,3 +29,7 @@ Thumbs.db
 .claude/launch.json
 .coverage
 htmlcov/
+
+# Histórico em SQLite (dados de execução, não vão para o Git)
+backend/data/*.db
+backend/data/*.db-journal
