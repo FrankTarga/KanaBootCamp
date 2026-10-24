@@ -78,6 +78,28 @@ export default function App() {
   const painelRef = useRef<HTMLDivElement>(null);
   const conteudoRef = useRef<HTMLElement>(null); // área que rola dentro do painel
   const raizRef = useRef<HTMLDivElement>(null);
+  // dentro do painel, a roda do mouse para baixo nunca mexe a página: ou rola uma área do painel, ou não faz nada
+  // (assim o menu lateral não "sobe" quando o conteúdo acaba ou quando o mouse está em cima dele)
+  useEffect(() => {
+    const el = painelRef.current;
+    if (!el) return;
+    const podeRolar = (alvo: EventTarget | null, dy: number) => {
+      for (let n = alvo as HTMLElement | null; n && n !== el; n = n.parentElement) {
+        const st = getComputedStyle(n);
+        if (!/(auto|scroll)/.test(st.overflowY) || n.scrollHeight <= n.clientHeight + 1) continue;
+        if (dy > 0 ? n.scrollTop + n.clientHeight < n.scrollHeight - 1 : n.scrollTop > 0) return true;
+      }
+      return false;
+    };
+    const roda = (e: WheelEvent) => {
+      if (e.ctrlKey || Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+      const chegou = el.getBoundingClientRect().top <= 1;
+      if (chegou && e.deltaY > 0 && !podeRolar(e.target, e.deltaY)) e.preventDefault();
+    };
+    el.addEventListener("wheel", roda, { passive: false });
+    return () => el.removeEventListener("wheel", roda);
+  }, [persona]);
+
   // transição da página inicial para o painel: 0 = só a página inicial, 1 = painel ocupando a tela
   useEffect(() => {
     let quadro = 0;
@@ -209,7 +231,7 @@ export default function App() {
       <PaginaInicial onEntrar={entrarNoPainel} />
 
       {/* abaixo da página inicial: login (se ainda não entrou) ou o painel */}
-      <div ref={painelRef} id="painel" className="relative h-[100dvh] snap-start overflow-hidden">
+      <div ref={painelRef} id="painel" className="sticky top-0 h-screen snap-start overflow-hidden supports-[height:100dvh]:h-[100dvh]">
       {conferindoSessao ? (
         <div className="h-full" aria-busy="true" />
       ) : !persona ? (
