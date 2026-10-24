@@ -8,10 +8,10 @@ Passo a passo para a equipe ligar o sistema, entrar e testar cada parte do site.
 
 | perfil (escolha na tela de login) | e-mail | senha |
 |---|---|---|
-| **Gestor do fundo** | `banca@antecipe.com.br` | `Gestor-Kana-4821` |
-| **Empresa (cedente)** | `empresa@antecipe.com.br` | `Empresa-Kana-7364` |
+| **Gestor do fundo** | `banca@antecipe.com.br` | `<senha do gestor, combinada com a equipe>` |
+| **Empresa (cedente)** | `empresa@antecipe.com.br` | `<senha da empresa, combinada com a equipe>` |
 
-**Chave do gestor** (para salvar regras na gaveta "Regras do fundo"): `xk-antecipe-9f3b27d14e8c6a05`
+**Chave do gestor** (para salvar regras na gaveta "Regras do fundo"): `<chave do gestor, combinada com a equipe>`
 
 Essas senhas só funcionam se o arquivo `.env` estiver como no Passo 2.
 
@@ -49,16 +49,16 @@ Se o Notepad perguntar se quer criar o arquivo, clique em **Sim**. Apague o que 
 ```
 # Copie para .env (o .env não vai para o Git) e troque os valores.
 # Chave que o gestor digita na gaveta para salvar regras (header X-API-Key)
-ADMIN_API_KEY=xk-antecipe-9f3b27d14e8c6a05
+ADMIN_API_KEY=<chave do gestor, combinada com a equipe>
 
 # Login do portal: usuários criados no startup; sem a senha, aquele usuário não é criado
 BANCA_EMAIL=banca@antecipe.com.br
-BANCA_SENHA=Gestor-Kana-4821
+BANCA_SENHA=<senha do gestor, combinada com a equipe>
 CEDENTE_EMAIL=empresa@antecipe.com.br
-CEDENTE_SENHA=Empresa-Kana-7364
+CEDENTE_SENHA=<senha da empresa, combinada com a equipe>
 
 # Segredo que assina o token de sessão (string aleatória longa)
-SESSAO_SEGREDO=b7e41c9a0f2d58e6a3c1974fd06b25e8c3a9f17d4e60b2a8
+SESSAO_SEGREDO=<string aleatória longa>
 
 # URL da API vista pelo navegador (na VPS: http://IP-DA-VPS:8000/api/v1)
 VITE_API_URL=http://localhost:8000/api/v1
@@ -66,6 +66,8 @@ VITE_API_URL=http://localhost:8000/api/v1
 # Fonte da situação cadastral do mock da Receita
 SITUACAO_FONTE=gabarito
 ```
+
+Os valores entre `< >` não ficam no Git (o repositório é público): peça à equipe. Para gerar uma chave ou segredo novo (PowerShell ou bash): `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
 Salve (Ctrl+S) e feche.
 
@@ -99,7 +101,7 @@ Os números abaixo valem com a taxa padrão de 2% ao mês e a data 22/10/2026. O
 ### Passo 6: Login como empresa
 1. Clique em **Empresa (cedente)**. O e-mail `empresa@antecipe.com.br` já vem preenchido.
 2. Digite uma senha errada e clique em **Entrar**. Deve aparecer "E-mail ou senha incorretos."
-3. Digite `Empresa-Kana-7364` e entre.
+3. Digite `<senha da empresa, combinada com a equipe>` e entre.
 4. Confira: o menu lateral mostra "Metalúrgica Silva LTDA" embaixo e **não** tem "Regras do fundo".
 
 ### Passo 7: Enviar notas
@@ -138,7 +140,7 @@ Os números abaixo valem com a taxa padrão de 2% ao mês e a data 22/10/2026. O
 
 ### Passo 13: Sair e entrar como gestor
 1. No pé do menu lateral, clique no botão de sair, ao lado do nome.
-2. Clique em **Gestor do fundo**, digite `Gestor-Kana-4821` e entre.
+2. Clique em **Gestor do fundo**, digite `<senha do gestor, combinada com a equipe>` e entre.
 3. Confira: o lote da empresa **não** aparece mais, e a gaveta **Regras do fundo** abre sozinha. Feche com Esc.
 
 ### Passo 14: Otimizador
@@ -150,7 +152,7 @@ Os números abaixo valem com a taxa padrão de 2% ao mês e a data 22/10/2026. O
 2. Desligue a regra **Limite por cliente** e clique em **Testar sem salvar**. Com o lote 02 aberto, passa de 6 para 7 notas aprovadas. Aparece o efeito no lote (dinheiro liberado e notas aprovadas), sem mudar o fundo.
 3. Ligue a regra de novo.
 4. Em **Chave do gestor**, digite algo errado e clique em **Salvar e recalcular**: deve dar erro.
-5. Digite `xk-antecipe-9f3b27d14e8c6a05` e salve: aparece "Regras salvas e lote recalculado".
+5. Digite `<chave do gestor, combinada com a equipe>` e salve: aparece "Regras salvas e lote recalculado".
 
 ### Passo 16: Carteira do fundo (100 mil notas)
 1. Em **Enviar notas**, marque **Carteira do fundo**.
@@ -213,7 +215,7 @@ Abra http://localhost:5173. O login aceita qualquer senha e as telas usam o lote
 | "E-mail ou senha incorretos" com a senha certa | o `.env` não está igual ao do Passo 2, ou o perfil escolhido não é o da conta. Corrija e rode `docker compose up -d --build` |
 | o site não abre em localhost:5173 | um `npm run dev` está ocupando o endereço. Feche-o com Ctrl+C e rode o Passo 3 de novo |
 | "estes números não são do seu arquivo" | o servidor caiu no meio. Rode `docker compose ps`, ligue de novo e reenvie |
-| salvar regras dá erro de chave | digite `xk-antecipe-9f3b27d14e8c6a05` em "Chave do gestor" |
+| salvar regras dá erro de chave | digite `<chave do gestor, combinada com a equipe>` em "Chave do gestor" |
 | `backend` não fica healthy | rode `docker compose logs backend --tail 30` e mande o print no grupo |
 | na VPS Linux, o log diz `unable to open database file` | o container não tem permissão de gravar na pasta. Na VPS: `sudo chown -R 1000:1000 backend/data` e depois `docker compose up -d` |
 | na VPS, o site não fala com a API | no `.env` da VPS, use `VITE_API_URL=http://IP-DA-VPS:8000/api/v1` e rode `docker compose up -d --build` |

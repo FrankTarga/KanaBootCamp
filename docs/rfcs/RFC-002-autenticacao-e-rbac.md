@@ -70,5 +70,5 @@ Para cumprir simultaneamente a segurança da aplicação e o requisito do edital
 
 ## 5. Fluxo de Experiência do Utilizador no Front-end (`LoginScreen.tsx`)
 1. **Seleção Explícita de Persona:** O utilizador seleciona visualmente o cartão de perfil (Empresa Cedente ou Gestor do Fundo). O sistema valida se a conta autenticada no servidor corresponde ao perfil selecionado.
-2. **Atalho de Avaliação para a Banca:** A tela disponibiliza botões de preenchimento rápido das credenciais oficiais para eliminar atrito durante a apresentação ao vivo, mantendo a exigência de validação real via `POST /api/v1/auth/login`.
+2. **Sem atalho de senha na tela:** o preenchimento em 1 clique com as credenciais oficiais foi removido, porque colocava as senhas no repositório público e no JS que o navegador baixa. A banca digita a senha, combinada fora do Git.
 3. **Isolamento de Sessão no Logout:** Ao clicar em "Sair", o `App.tsx` remove o token do `localStorage`, limpa os lotes em memória e fecha a gaveta de configuração do gestor, garantindo que uma empresa não visualize dados residuais de outra sessão.
