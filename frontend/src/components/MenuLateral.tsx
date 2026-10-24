@@ -121,7 +121,7 @@ export function MenuLateral(props: MenuLateralProps) {
   return (
     <>
       {/* celular: barra no topo + gaveta */}
-      <div className="sticky top-0 z-30 flex items-center justify-between bg-floresta-escura px-4 py-3 lg:hidden">
+      <div className="entrada-barra z-30 flex shrink-0 items-center justify-between bg-floresta-escura px-4 py-3 lg:hidden">
         <Marca />
         <button type="button" onClick={() => setAberto(true)} aria-label="Abrir menu" aria-expanded={aberto}
           className="rounded-lg p-2 text-creme hover:bg-white/10"><Menu className="h-6 w-6" /></button>
@@ -137,8 +137,8 @@ export function MenuLateral(props: MenuLateralProps) {
           </aside>
         </div>
       )}
-      {/* computador: preso à esquerda enquanto o painel rola (abaixo da página inicial); rola sozinho se a tela for baixa */}
-      <aside className="sticky top-0 z-30 hidden h-screen w-72 shrink-0 self-start overflow-y-auto overscroll-contain bg-floresta-escura lg:block">{conteudo}</aside>
+      {/* computador: ocupa a altura do painel e não se mexe; só o conteúdo à direita rola */}
+      <aside className="entrada-menu z-30 hidden h-full w-72 shrink-0 overflow-y-auto overscroll-contain bg-floresta-escura lg:block">{conteudo}</aside>
     </>
   );
 }

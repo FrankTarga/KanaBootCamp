@@ -178,7 +178,19 @@ export async function obterHealth(): Promise<{ dados: HealthResponse; fonte: Fon
 
 export type Sessao = { email: string; nome: string; cargo: string; role: "CEDENTE" | "GESTOR"; token: string };
 
+/**
+ * Modo de design (VITE_USE_MOCK=true, só no npm run dev de quem está mexendo na tela): entra sem servidor.
+ * O build de produção não liga essa variável, então lá a senha continua sendo conferida no servidor.
+ */
+function sessaoDeDesign(email: string): Sessao {
+  const gestor = email.trim().toLowerCase().startsWith("banca");
+  return gestor
+    ? { email, nome: "Banca avaliadora", cargo: "Gestor do fundo", role: "GESTOR", token: "design:GESTOR" }
+    : { email, nome: "Metalúrgica Silva LTDA", cargo: "Empresa cedente", role: "CEDENTE", token: "design:CEDENTE" };
+}
+
 export async function entrar(email: string, senha: string): Promise<Sessao> {
+  if (FORCAR_MOCK) return sessaoDeDesign(email);
   const res = await requisitar<Sessao>("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -189,6 +201,7 @@ export async function entrar(email: string, senha: string): Promise<Sessao> {
 
 /** Confere no servidor se o token salvo ainda vale (assinatura e validade); lança ApiError 401 se não. */
 export async function sessaoAtual(token: string): Promise<Sessao> {
+  if (FORCAR_MOCK) return sessaoDeDesign(token === "design:GESTOR" ? "banca@antecipe.com.br" : "empresa@antecipe.com.br");
   const res = await requisitar<Sessao>("/auth/me", { headers: { Authorization: `Bearer ${token}` } });
   return res.dados;
 }

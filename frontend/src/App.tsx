@@ -76,6 +76,24 @@ export default function App() {
   const navInterna = useRef(false); // true quando o próprio site trocou o endereço
   // o painel fica logo abaixo da página inicial; trocar de tela leva ao topo do painel
   const painelRef = useRef<HTMLDivElement>(null);
+  const conteudoRef = useRef<HTMLElement>(null); // área que rola dentro do painel
+  const raizRef = useRef<HTMLDivElement>(null);
+  // transição da página inicial para o painel: 0 = só a página inicial, 1 = painel ocupando a tela
+  useEffect(() => {
+    let quadro = 0;
+    const atualizar = () => {
+      quadro = 0;
+      const el = painelRef.current;
+      if (!el) return;
+      const p = Math.min(Math.max(1 - el.getBoundingClientRect().top / window.innerHeight, 0), 1);
+      raizRef.current?.style.setProperty("--entrada", p.toFixed(3));
+    };
+    const pedir = () => { if (!quadro) quadro = requestAnimationFrame(atualizar); };
+    atualizar();
+    window.addEventListener("scroll", pedir, { passive: true });
+    window.addEventListener("resize", pedir);
+    return () => { window.removeEventListener("scroll", pedir); window.removeEventListener("resize", pedir); cancelAnimationFrame(quadro); };
+  }, []);
   useEffect(() => {
     // endereço mudou por fora (voltar do navegador, link colado): troca a tela e desce até o painel
     const aoMudar = () => {
@@ -95,6 +113,7 @@ export default function App() {
     if (window.location.hash.slice(1) !== t) { navInterna.current = true; window.location.hash = t; }
     setTelaEstado(t);
     topoDoPainel(suave);
+    conteudoRef.current?.scrollTo({ top: 0, behavior: "instant" });
   };
   const entrarNoPainel = useCallback((t?: Tela) => {
     if (t) {
@@ -186,17 +205,19 @@ export default function App() {
   const gestor = persona?.role === "GESTOR";
 
   return (
-    <div className="min-h-screen bg-creme font-sans">
+    <div ref={raizRef} className="min-h-screen bg-creme font-sans">
       <PaginaInicial onEntrar={entrarNoPainel} />
 
       {/* abaixo da página inicial: login (se ainda não entrou) ou o painel */}
-      <div ref={painelRef} id="painel">
+      <div ref={painelRef} id="painel" className="relative h-[100dvh] snap-start overflow-hidden">
       {conferindoSessao ? (
-        <div className="min-h-screen" aria-busy="true" />
+        <div className="h-full" aria-busy="true" />
       ) : !persona ? (
+        <div className="entrada-conteudo h-full overflow-y-auto">
         <LoginScreen onLogin={(p) => { setPersona(p); setDrawerGestorAberto(p.role === "GESTOR"); requestAnimationFrame(() => topoDoPainel(false)); }} />
+        </div>
       ) : (
-      <div className="relative min-h-screen lg:flex">
+      <div className="flex h-full flex-col lg:flex-row">
       <MenuLateral
         tela={tela}
         onTela={irPara}
@@ -212,7 +233,7 @@ export default function App() {
         nomeLote={loteAtual?.nome ?? null}
       />
 
-      <main className="min-h-screen min-w-0 flex-1">
+      <main ref={conteudoRef} className="entrada-conteudo min-h-0 min-w-0 flex-1 overflow-y-auto">
         {tela === "envio" && (
           <TelaEnvio
             onLote={handleLote}

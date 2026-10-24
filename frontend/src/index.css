@@ -17,6 +17,11 @@
     scroll-behavior: smooth;
   }
 
+  /* duas "telas": a página inicial e o painel; no computador a rolagem assenta em uma delas */
+  @media (min-width: 1024px) {
+    html { scroll-snap-type: y proximity; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;
@@ -106,5 +111,26 @@
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: rgb(203 213 225) transparent;
+  }
+}
+
+/* Transição página inicial → painel, guiada pela rolagem (--entrada vai de 0 a 1, definido no App) */
+@layer utilities {
+  .entrada-menu {
+    transform: translateX(calc((1 - var(--entrada, 1)) * -100%));
+    opacity: calc(0.2 + 0.8 * var(--entrada, 1));
+  }
+  .entrada-barra { opacity: var(--entrada, 1); }
+  .entrada-conteudo {
+    transform: translateY(calc((1 - var(--entrada, 1)) * 48px));
+    opacity: calc(0.3 + 0.7 * var(--entrada, 1));
+  }
+  .saida-inicio {
+    transform: translateY(calc(var(--entrada, 0) * -40px)) scale(calc(1 - 0.04 * var(--entrada, 0)));
+    opacity: calc(1 - 0.75 * var(--entrada, 0));
+    transform-origin: center top;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .entrada-menu, .entrada-conteudo, .saida-inicio { transform: none; }
   }
 }
