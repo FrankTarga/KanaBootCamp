@@ -46,7 +46,7 @@ export function TelaResumo({ resumo, meta, demo, motorDesligado, nomeLote, repla
       {motorDesligado && (
         <p role="alert" className="flex items-start gap-2 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>O motor de análise não respondeu, então <strong>estes números não são do seu arquivo</strong>: são do lote de demonstração. Ligue o backend e envie o arquivo de novo.</span>
+          <span>O servidor de análise não respondeu, então <strong>estes números não são do seu arquivo</strong>: são do lote de demonstração. Ligue o servidor e envie o arquivo de novo.</span>
         </p>
       )}
 
