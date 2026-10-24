@@ -22,9 +22,10 @@ export const FAIXAS = [
 export function BrutoAoLiquido({ resumo }: { resumo: ResumoLote }) {
   const B = resumo.valor_bruto_total;
   const linhas = [
+    // todas as barras partem da esquerda: o tamanho é a parte do valor enviado
     { sigla: "ENV", nome: "Valor enviado", valor: B, de: 0, ate: 100, cor: "bg-slate-400" },
-    { sigla: "REC", nome: "Ficou de fora", valor: -resumo.valor_bruto_recusado, de: pct(resumo.valor_bruto_aprovado, B), ate: 100, cor: "bg-rose-500" },
-    { sigla: "CUS", nome: "Custo da antecipação", valor: -resumo.desagio_total, de: pct(resumo.valor_liquido_receber, B), ate: pct(resumo.valor_bruto_aprovado, B), cor: "bg-amber-500" },
+    { sigla: "REC", nome: "Ficou de fora", valor: -resumo.valor_bruto_recusado, de: 0, ate: pct(resumo.valor_bruto_recusado, B), cor: "bg-rose-500" },
+    { sigla: "CUS", nome: "Custo da antecipação", valor: -resumo.desagio_total, de: 0, ate: pct(resumo.desagio_total, B), cor: "bg-amber-500" },
     { sigla: "LÍQ", nome: "Na sua conta hoje", valor: resumo.valor_liquido_receber, de: 0, ate: pct(resumo.valor_liquido_receber, B), cor: "bg-broto" },
   ];
   return (

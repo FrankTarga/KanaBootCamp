@@ -65,10 +65,12 @@ export function PaginaInicial({ onEntrar }: PaginaInicialProps) {
   }, [onEntrar]);
 
   return (
-    <section ref={ref} id="inicio" aria-label="Página inicial" className="relative isolate flex min-h-[100svh] flex-col overflow-hidden bg-creme">
+    <section ref={ref} id="inicio" aria-label="Página inicial" className="relative isolate flex min-h-[100svh] snap-start flex-col overflow-hidden bg-creme">
       {/* faixas suaves ao fundo, só decoração */}
       <div aria-hidden="true" className="pointer-events-none absolute -right-40 -top-40 -z-10 h-[34rem] w-[34rem] rounded-full bg-broto/10 blur-3xl" />
       <div aria-hidden="true" className="pointer-events-none absolute -bottom-48 -left-40 -z-10 h-[30rem] w-[30rem] rounded-full bg-floresta/10 blur-3xl" />
+      {/* fim da página inicial se dissolve na cor do painel, sem linha de corte */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 -z-[5] h-48 bg-gradient-to-b from-creme/0 to-creme" />
 
       <header className="sticky top-0 z-20 border-b border-creme-linha/80 bg-creme/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-4 px-5 py-3 sm:px-8">
@@ -93,7 +95,7 @@ export function PaginaInicial({ onEntrar }: PaginaInicialProps) {
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-6xl flex-1 items-center gap-10 px-5 py-10 sm:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:py-14">
+      <div className="saida-inicio mx-auto grid w-full max-w-6xl flex-1 items-center gap-10 px-5 py-10 sm:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:py-14">
         <div className="flex flex-col gap-6">
           <p className="eyebrow text-emerald-700">Antecipação de recebíveis · ANTECIPE FIDC</p>
           <h1 className="font-display text-4xl font-semibold leading-[1.05] tracking-tight text-floresta sm:text-5xl lg:text-6xl">
@@ -146,7 +148,7 @@ export function PaginaInicial({ onEntrar }: PaginaInicialProps) {
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-6xl px-5 pb-6 sm:px-8">
+      <div className="saida-inicio mx-auto w-full max-w-6xl px-5 pb-6 sm:px-8">
         <ol className="grid gap-3 sm:grid-cols-3">
           {PASSOS.map(({ Icone, titulo, texto }, i) => (
             <li key={titulo} className="flex gap-3 rounded-2xl border border-creme-linha bg-creme-claro/80 p-4">
