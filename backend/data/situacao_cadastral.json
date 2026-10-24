@@ -1,0 +1,7 @@
+{
+  "_comentario": "Situação cadastral na Receita Federal por CNPJ do sacado. CNPJ ausente = ATIVA. Recarregado automaticamente quando o arquivo muda.",
+  "situacoes": {
+    "46.778.910/0001-09": "BAIXADA",
+    "99.011.418/0001-61": "INAPTA"
+  }
+}
