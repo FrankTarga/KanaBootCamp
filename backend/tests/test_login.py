@@ -147,3 +147,22 @@ def test_startup_semeia_usuarios_no_banco_acid(client, pasta_dados):
     assert u_cedente is not None
     assert u_cedente["role"] == "CEDENTE"
 
+
+
+@pytest.mark.parametrize("valor", [None, ""])  # ausente, ou vazio como o docker-compose repassa
+def test_sem_sessao_segredo_ninguem_forja_token(pasta_dados, monkeypatch, valor):
+    monkeypatch.setenv("DATA_DIR", str(pasta_dados))
+    monkeypatch.setenv("BANCA_SENHA", SENHA)
+    monkeypatch.delenv("RECEITA_API_URL", raising=False)
+    if valor is None:
+        monkeypatch.delenv("SESSAO_SEGREDO", raising=False)
+    else:
+        monkeypatch.setenv("SESSAO_SEGREDO", valor)
+    gestor = {"id": 1, "email": EMAIL, "nome": "Banca", "cargo": "Gestor", "role": "GESTOR"}
+    with TestClient(app) as c:
+        for chave in (b"", b"segredo-antecipe-pro-fidc-2026"):  # chave vazia e o antigo valor fixo do código
+            forjado = emitir_token(chave, gestor, 3600)
+            assert c.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {forjado}"}).status_code == 401
+        token = login(c, EMAIL, SENHA).json()["token"]
+        assert c.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
