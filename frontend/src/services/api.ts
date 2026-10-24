@@ -10,6 +10,8 @@ import type {
   OcorrenciaNota,
   PaginaHistorico,
   OpcoesValidacao,
+  OperacaoLote,
+  ResultadoLiquidacao,
   ResultadoProcessamento,
   ValidadoresConfig,
 } from "../types/api";
@@ -294,6 +296,38 @@ export async function buscarNotaHistorico(nuDocumento: string, limite = 50, offs
   const q = encodeURIComponent(nuDocumento.trim());
   return (await requisitar<PaginaHistorico<OcorrenciaNota>>(`/historico/notas?nu_documento=${q}&limite=${limite}&offset=${offset}`)).dados;
 }
+
+/** Efetiva a compra e liquidação do lote aprovado (Transação ACID no SQLite + StockIndex em RAM). */
+export async function liquidarLote(batchHash: string): Promise<ResultadoLiquidacao> {
+  if (FORCAR_MOCK) {
+    return {
+      batch_hash: batchHash,
+      status: "LIQUIDADO",
+      liquidado_em: new Date().toISOString().replace("T", " ").slice(0, 19),
+      qtd_titulos_comprados: 1,
+      titulos_comprados: [],
+    };
+  }
+  const res = await requisitar<ResultadoLiquidacao>(`/batches/${batchHash}/liquidate`, {
+    method: "POST",
+  });
+  return res.dados;
+}
+
+/** Busca o histórico de operações (simuladas e liquidadas) do banco SQLite ACID. */
+export async function listarOperacoesBanco(): Promise<OperacaoLote[]> {
+  if (FORCAR_MOCK) {
+    return [];
+  }
+  try {
+    const res = await requisitar<{ historico: OperacaoLote[] }>("/batches/history");
+    return res.dados.historico ?? [];
+  } catch (e) {
+    console.warn("Falha ao buscar histórico de operações do banco ACID:", e);
+    return [];
+  }
+}
+
 
 /**
  * Validação de Lote com Fallback Transparente para o Mock Inteligente.

@@ -1,8 +1,8 @@
 import { useEffect, useState, type ComponentType } from "react";
-import { BarChart3, FolderUp, History, ListChecks, LogOut, Menu, Receipt, SlidersHorizontal, TrendingDown, Wand2, X } from "lucide-react";
+import { BarChart3, Database, FolderUp, History, ListChecks, LogOut, Menu, Receipt, SlidersHorizontal, TrendingDown, Wand2, X } from "lucide-react";
 import type { Persona } from "./LoginScreen";
 
-export type Tela = "envio" | "resumo" | "estatistica" | "perda" | "notas" | "historico";
+export type Tela = "envio" | "resumo" | "estatistica" | "perda" | "notas" | "historico" | "operacoes";
 
 interface MenuLateralProps {
   tela: Tela;
@@ -39,6 +39,7 @@ const ITENS: { id: Tela; rotulo: string; dica: string; Icone: ComponentType<{ cl
   { id: "perda", rotulo: "Análise de perda", dica: "Quanto custa esperar", Icone: TrendingDown },
   { id: "notas", rotulo: "Notas", dica: "Nota por nota", Icone: ListChecks },
   { id: "historico", rotulo: "Histórico", dica: "Lotes já validados", Icone: History },
+  { id: "operacoes", rotulo: "Histórico de Lotes", dica: "Banco SQLite ACID", Icone: Database },
 ];
 
 export function MenuLateral(props: MenuLateralProps) {
@@ -60,7 +61,7 @@ export function MenuLateral(props: MenuLateralProps) {
       <nav aria-label="Telas" className="flex flex-col gap-1">
         {ITENS.map(({ id, rotulo, dica, Icone }) => {
           const ativo = tela === id;
-          const bloqueado = id !== "envio" && id !== "historico" && !temResultado;
+          const bloqueado = id !== "envio" && id !== "historico" && id !== "operacoes" && !temResultado;
           return (
             <button key={id} type="button" disabled={bloqueado} onClick={() => ir(id)} aria-current={ativo ? "page" : undefined}
               className={`group flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-broto ${

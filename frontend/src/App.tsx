@@ -5,16 +5,18 @@ import { TelaEnvio } from "./components/telas/TelaEnvio";
 import { TelaResumo, Cabecalho } from "./components/telas/TelaResumo";
 import { TelaEstatistica } from "./components/telas/TelaEstatistica";
 import { TelaHistorico } from "./components/telas/TelaHistorico";
+import { TelaOperacoesBanco } from "./components/telas/TelaOperacoesBanco";
 import { TelaPerda } from "./components/telas/TelaPerda";
+import { ModalComprovantePix } from "./components/ModalComprovantePix";
 import { StatusApi } from "./components/StatusApi";
 import { TabelaRecebiveis } from "./components/TabelaRecebiveis";
 import { GavetaGestor } from "./components/GavetaGestor";
 import { LoginScreen, type Persona } from "./components/LoginScreen";
-import { validarLote, salvarValidadores, simularLoteLocal, obterHealth, sessaoAtual } from "./services/api";
+import { validarLote, salvarValidadores, simularLoteLocal, obterHealth, sessaoAtual, liquidarLote } from "./services/api";
 import { formatarMoedaCompacta } from "./utils/formatters";
-import type { BatchValidationResponse, ComparativoRegras, FonteDados, ModoValidacao, ValidadoresConfig } from "./types/api";
+import type { BatchValidationResponse, ComparativoRegras, FonteDados, ModoValidacao, ResultadoLiquidacao, ValidadoresConfig } from "./types/api";
 
-const TELAS: Tela[] = ["envio", "resumo", "estatistica", "perda", "notas", "historico"];
+const TELAS: Tela[] = ["envio", "resumo", "estatistica", "perda", "notas", "historico", "operacoes"];
 const telaDoEndereco = (): Tela => {
   const h = window.location.hash.slice(1) as Tela;
   return TELAS.includes(h) ? h : "envio";
@@ -70,6 +72,11 @@ export default function App() {
   // Gaveta do gestor e comparativo what-if
   const [drawerGestorAberto, setDrawerGestorAberto] = useState<boolean>(false);
   const [comparativoRegras, setComparativoRegras] = useState<ComparativoRegras | null>(null);
+
+  // Liquidação e Comprovante PIX/TED
+  const [modalComprovante, setModalComprovante] = useState<ResultadoLiquidacao | null>(null);
+  const [loteLiquidado, setLoteLiquidado] = useState<boolean>(false);
+  const [liquidando, setLiquidando] = useState<boolean>(false);
 
   // Tela atual vive no endereço (#resumo...), então voltar do navegador e links funcionam
   const [tela, setTelaEstado] = useState<Tela>(telaDoEndereco);
@@ -178,6 +185,7 @@ export default function App() {
           modo,
         });
         setResultado(res.dados);
+        setLoteLiquidado(false);
         setFonteDados(res.fonte);
         setReplayIdempotente(res.replayIdempotente);
         if (override) {
@@ -213,7 +221,24 @@ export default function App() {
     setLoteAtual(null);
     setComparativoRegras(null);
     setMotivoFiltroAtivo(null);
+    setLoteLiquidado(false);
     processarLote(null, undefined, false, "resumo");
+  };
+
+  const handleLiquidarLote = async () => {
+    if (!resultado) return;
+    const batchHash = resultado.meta.batch_hash_idempotencia;
+    setLiquidando(true);
+    setErroGeral(null);
+    try {
+      const res = await liquidarLote(batchHash);
+      setLoteLiquidado(true);
+      setModalComprovante(res);
+    } catch (err: unknown) {
+      setErroGeral(err instanceof Error ? err.message : "Falha ao liquidar lote.");
+    } finally {
+      setLiquidando(false);
+    }
   };
 
   const verNotas = (codigo: string | null) => {
@@ -309,6 +334,19 @@ export default function App() {
             nomeLote={loteAtual?.nome ?? null}
             replayIdempotente={replayIdempotente}
             onIr={(destino, motivo) => (destino === "notas" ? verNotas(motivo ?? null) : irPara(destino))}
+            onLiquidar={handleLiquidarLote}
+            onVerComprovante={() => {
+              if (resultado) {
+                setModalComprovante({
+                  batch_hash: resultado.meta.batch_hash_idempotencia,
+                  status: "LIQUIDADO",
+                  liquidado_em: new Date().toLocaleString("pt-BR"),
+                  qtd_titulos_comprados: resultado.resumo.qtd_aprovadas,
+                });
+              }
+            }}
+            liquidando={liquidando}
+            loteLiquidado={loteLiquidado}
           />
         )}
 
@@ -332,6 +370,14 @@ export default function App() {
             ehGestor={gestor}
           />
         )}
+        {tela === "operacoes" && (
+          <TelaOperacoesBanco
+            batchHashAtual={fonteDados === "api" ? resultado?.meta.batch_hash_idempotencia ?? null : null}
+            onMostrarComprovante={(liq) => {
+              setModalComprovante(liq);
+            }}
+          />
+        )}
       </main>
       </div>
       )}
@@ -348,6 +394,19 @@ export default function App() {
         carregando={carregando}
         comparativo={comparativoRegras}
       />
+
+      {modalComprovante && resultado && (
+        <ModalComprovantePix
+          aberto={true}
+          onFechar={() => setModalComprovante(null)}
+          onVerHistorico={() => {
+            setModalComprovante(null);
+            irPara("operacoes");
+          }}
+          resultadoLiquidacao={modalComprovante}
+          resultadoLote={resultado}
+        />
+      )}
     </div>
   );
 }
