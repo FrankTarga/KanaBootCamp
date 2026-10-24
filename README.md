@@ -50,6 +50,134 @@ npm run dev
 
 Testes do back-end: `cd backend; .\.venv\Scripts\python -m pytest tests -q`
 
+## Como funciona por dentro (diagramas)
+
+**A memória e o banco trabalham juntos.** A validação acontece na memória RAM: o estoque de 100.554 notas é indexado uma vez, quando o servidor liga, e cada consulta (duplicidade, fraude, exposição por grupo) é O(1). O banco SQLite guarda o que precisa durar: usuários, cada envio com suas notas e motivos, e cada mudança de regra.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Empresa as Empresa (cedente)
+    actor Gestor as Gestor do fundo
+    participant Front as Site (React)
+    participant API as API FastAPI (main.py)
+    participant RAM as Memória RAM, consulta O(1)<br/>estoque de 100.554 notas + regras
+    participant Receita as Mock da Receita<br/>(situação cadastral)
+    participant DB as SQLite (historico.db)<br/>lotes, notas, usuários, regras
+
+    Note over API,DB: 1. Servidor liga
+    API->>RAM: lê estoque_antecipe.csv (~0,35 s) e indexa hashes e exposição por grupo
+    API->>RAM: carrega validadores_antecipe.json (regras e taxa de 2% a.m.)
+    API->>DB: aplica migrações e cria os usuários do .env (senha em hash scrypt)
+
+    Note over Empresa,DB: 2. Login
+    Empresa->>Front: e-mail e senha
+    Front->>API: POST /auth/login
+    API->>DB: confere o hash da senha na tabela usuarios
+    API-->>Front: token de sessão assinado (8 h)
+
+    Note over Empresa,DB: 3. Envio do lote (validar e precificar)
+    Empresa->>Front: arrasta a pasta de CSVs
+    Front->>API: POST /batches/validate (CSV + token)
+    API->>API: mesmo arquivo e mesmos parâmetros: devolve a resposta guardada (idempotência)
+    API->>RAM: regras, limite por grupo (Shadow Ledger), duplicidade e fraude, otimizador
+    API->>Receita: situação cadastral de cada cliente (com cache, sem resposta = recusa)
+    API->>DB: grava lote, notas e motivos numa transação só
+    API-->>Front: aprovadas, recusadas com o que fazer, valor líquido
+    Front-->>Empresa: Resumo, Estatística, Notas e Análise de perda
+
+    Note over Gestor,DB: 4. Regras sem reiniciar
+    Gestor->>Front: muda regras e digita a chave do gestor
+    Front->>API: PUT /validators (X-API-Key)
+    API->>RAM: valida, grava o JSON em disco e troca as regras (versão + 1)
+    API->>DB: registra quem mudou e a configuração nova (mudancas_regras)
+
+    Note over Empresa,DB: 5. Histórico
+    Front->>API: GET /historico/lotes, /lotes/{id}, /notas
+    API->>DB: gestor vê todos os envios, a empresa só os dela
+    API-->>Front: envios antigos, notas e busca por número da nota
+```
+
+**Tabelas do banco** (`backend/data/historico.db`, criadas e migradas sozinhas pelo `historico.py`). A carteira de 100 mil notas guarda só o resumo em `lotes`; os lotes de notas guardam também cada nota e cada motivo.
+
+```mermaid
+erDiagram
+    USUARIOS ||--o{ LOTES : "envia"
+    USUARIOS ||--o{ MUDANCAS_REGRAS : "altera"
+    LOTES ||--o{ NOTAS_LOTE : "contém"
+    NOTAS_LOTE ||--o{ ERROS_NOTA : "tem motivos"
+
+    USUARIOS {
+        INTEGER id PK
+        TEXT email UK "login, sempre minúsculo"
+        TEXT senha_hash "scrypt com salt, nunca a senha"
+        TEXT nome
+        TEXT cargo
+        TEXT role "CEDENTE ou GESTOR"
+        TEXT criado_em
+    }
+
+    LOTES {
+        INTEGER id PK
+        INTEGER usuario_id FK "quem enviou"
+        TEXT criado_em
+        TEXT batch_hash "impressão digital do arquivo"
+        TEXT chave_idempotencia "arquivo + parâmetros + versão das regras"
+        TEXT modo "lote ou carteira"
+        TEXT data_base
+        REAL taxa_mensal
+        INTEGER versao_config "versão das regras usada"
+        INTEGER what_if "1 = teste do gestor"
+        INTEGER replay "1 = resposta guardada"
+        INTEGER total_notas
+        INTEGER qtd_aprovadas
+        INTEGER qtd_recusadas
+        INTEGER qtd_alertas_fraude
+        REAL valor_bruto_total
+        REAL valor_liquido_receber
+        REAL tempo_processamento_ms
+    }
+
+    NOTAS_LOTE {
+        INTEGER id PK
+        INTEGER lote_id FK
+        INTEGER linha_csv
+        TEXT nu_documento
+        TEXT nu_documento_busca "sem zeros à esquerda, para a busca"
+        TEXT doc_cedente
+        TEXT doc_sacado
+        TEXT tipo_recebivel
+        REAL valor_nominal
+        TEXT data_vencimento
+        INTEGER prazo_dias
+        REAL desagio_reais
+        REAL valor_liquido
+        TEXT status "APROVADA ou RECUSADA"
+        TEXT severidade "OK, REGRA_NEGOCIO, DUPLICIDADE ou FRAUDE"
+        INTEGER salva_pelo_otimizador
+    }
+
+    ERROS_NOTA {
+        INTEGER nota_id FK
+        INTEGER ordem
+        TEXT codigo
+        TEXT titulo_amigavel
+        TEXT mensagem_empresa "o que aconteceu"
+        TEXT acao_recomendada "como resolver"
+    }
+
+    MUDANCAS_REGRAS {
+        INTEGER id PK
+        INTEGER usuario_id FK "gestor que salvou"
+        TEXT criado_em
+        INTEGER versao_config
+        INTEGER regras_ativas
+        TEXT config_json "configuração completa"
+    }
+```
+
+Os mesmos diagramas em imagem, para slides: [`docs/diagramas/`](docs/diagramas/).
+
 ## Testes automatizados e simulador de stress
 
 **188 testes com pytest, todos passando** (`cd backend; python -m pytest tests -q`). Os cinco cenários de negócio que mais pesam na avaliação têm um arquivo próprio, [`backend/tests/test_cenarios_banca.py`](backend/tests/test_cenarios_banca.py), um teste por cenário:
