@@ -68,6 +68,8 @@ O sistema lê as senhas de um arquivo chamado `.env`. O arquivo que vem do GitHu
   cp .env.example .env
   ```
 
+> **Recebeu o arquivo `.env` da equipe?** Então pule o comando acima: coloque o arquivo recebido dentro da pasta do projeto (a mesma do `docker-compose.yml`) com o nome exato **`.env`**, sem `.txt` no final. No Windows, confira com `ls -Force` no PowerShell: tem que aparecer `.env`. Nesse caso, as senhas do Passo 6 são as que estão dentro dele (`BANCA_SENHA`, `CEDENTE_SENHA` e, para salvar regras, `ADMIN_API_KEY`); para ver, rode `Get-Content .env`.
+
 Pronto: com esse arquivo, as contas de teste do Passo 6 já funcionam. Para conferir, `Get-Content .env` (Windows) ou `cat .env` (Mac/Linux) mostra as linhas.
 
 > Vai colocar o sistema na internet (VPS)? Antes de ligar, abra o `.env` (`notepad .env`) e troque todos os valores que começam com `troque-` por senhas suas.
@@ -101,7 +103,7 @@ Abra **http://localhost:5173** no navegador (Chrome, Edge ou Firefox). Aparece a
 
 **Chave do gestor** (pedida ao salvar regras): `troque-esta-chave`
 
-Esses são os valores do `.env.example`. Se a equipe trocou as senhas no `.env`, use as que estiverem lá.
+Esses são os valores do `.env.example`. Se você usou o `.env` enviado pela equipe, as senhas são as que estão dentro dele (`Get-Content .env` mostra).
 
 ### Passo 7: Primeiro uso em 3 minutos
 
