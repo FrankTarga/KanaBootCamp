@@ -8,12 +8,12 @@ Passo a passo para a equipe ligar o sistema, entrar e testar cada parte do site.
 
 | perfil (escolha na tela de login) | e-mail | senha |
 |---|---|---|
-| **Gestor do fundo** | `banca@antecipe.com.br` | `<senha do gestor, combinada com a equipe>` |
-| **Empresa (cedente)** | `empresa@antecipe.com.br` | `<senha da empresa, combinada com a equipe>` |
+| **Gestor do fundo** | `banca@antecipe.com.br` | `troque-esta-senha` |
+| **Empresa (cedente)** | `empresa@antecipe.com.br` | `troque-esta-senha` |
 
 **Chave do gestor** (para salvar regras na gaveta "Regras do fundo"): `<chave do gestor, combinada com a equipe>`
 
-Essas senhas só funcionam se o arquivo `.env` estiver como no Passo 2.
+São os valores do `.env.example` (Passo 2). Se a equipe trocou as senhas no `.env`, use as de lá.
 
 ---
 
@@ -40,36 +40,13 @@ cd KanaBootCamp
 
 ### Passo 2: Criar o arquivo `.env`
 
+Copie o modelo que já vem no projeto:
+
 ```powershell
-notepad .env
+Copy-Item .env.example .env
 ```
 
-Se o Notepad perguntar se quer criar o arquivo, clique em **Sim**. Apague o que houver e cole exatamente isto:
-
-```
-# Copie para .env (o .env não vai para o Git) e troque os valores.
-# Chave que o gestor digita na gaveta para salvar regras (header X-API-Key)
-ADMIN_API_KEY=<chave do gestor, combinada com a equipe>
-
-# Login do portal: usuários criados no startup; sem a senha, aquele usuário fica desativado
-BANCA_EMAIL=banca@antecipe.com.br
-BANCA_SENHA=<senha do gestor, combinada com a equipe>
-CEDENTE_EMAIL=empresa@antecipe.com.br
-CEDENTE_SENHA=<senha da empresa, combinada com a equipe>
-
-# Segredo que assina o token de sessão (string aleatória longa)
-SESSAO_SEGREDO=<string aleatória longa>
-
-# URL da API vista pelo navegador (na VPS: http://IP-DA-VPS:8000/api/v1)
-VITE_API_URL=http://localhost:8000/api/v1
-
-# Fonte da situação cadastral do mock da Receita
-SITUACAO_FONTE=gabarito
-```
-
-Os valores entre `< >` não ficam no Git (o repositório é público): peça à equipe. Para gerar uma chave ou segredo novo (PowerShell ou bash): `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
-
-Salve (Ctrl+S) e feche.
+(Mac/Linux: `cp .env.example .env`.) Com ele, as contas da tabela acima já funcionam.
 
 ### Passo 3: Ligar
 
@@ -113,7 +90,7 @@ Os números abaixo valem com a taxa padrão de 2% ao mês e a data 22/10/2026. O
 ### Passo 8: Resumo
 - Deve mostrar **R$ 184,2 mil** na conta hoje, com **13 notas aprovadas de 22**.
 - O extrato é: valor enviado, menos o que ficou de fora, menos o custo da antecipação, igual ao que cai na conta.
-- Clique em **Contratar por R$ 184.221,52** e depois em **Confirmar contratação**. Aparece o comprovante "Antecipação contratada · 13 notas compradas pelo fundo". A partir daí essas notas são do fundo: enviar o mesmo arquivo de novo mostra todas como "já comprada".
+- No cartão verde, clique em **Confirmar e Liquidar Lote Aprovado**. Aparece o **Comprovante de Liquidação**: R$ 184.221,52 liberados, 13 títulos adquiridos e o protocolo. Clique em **Ver no Histórico**: o lote aparece como **Liquidado** em **Histórico de Lotes**. A partir daí essas notas são do fundo: enviar o mesmo arquivo de novo mostra todas como "já comprada".
 
 ### Passo 9: Estatística
 1. Clique em **Estatística**.
@@ -184,7 +161,8 @@ Achou algo errado? Anote o passo, o que fez, o que esperava e mande um print.
 | **Menu lateral** | navega entre as telas; mostra quanto cai na conta, quantas notas foram recusadas e se a análise está ligada |
 | **Enviar notas** | manda um arquivo, vários arquivos ou uma pasta. "Notas para antecipar" é o uso normal; "Carteira do fundo" analisa o estoque inteiro. Também dá para mudar a data, a taxa e ligar ou desligar o Otimizar |
 | **Resumo** | extrato de quanto cai na conta hoje, notas aprovadas, ganho do otimizador e alerta de fraude |
-| **Contratar** (no Resumo) | a compra de verdade: o fundo compra as notas aprovadas e mostra o comprovante |
+| **Liquidar** (no Resumo) | a compra de verdade: o fundo compra as notas aprovadas e mostra o comprovante |
+| **Histórico de Lotes** | simulações e liquidações gravadas no banco, com filtro, busca e o comprovante de cada liquidação |
 | **Estatística** | por que as notas foram recusadas (grupos que somam 100%, com quanto cada correção libera), liquidez, valor por problema e vencimentos |
 | **Análise de perda** | quanto custa esperar: digite um valor e um prazo e veja quanto recebe e quanto perde |
 | **Notas** | nota por nota, com busca, abas, explicação de cada recusa e as planilhas para baixar |
@@ -220,4 +198,4 @@ Abra http://localhost:5173. O login aceita qualquer senha e as telas usam o lote
 | na VPS Linux, o log diz `unable to open database file` | o container não tem permissão de gravar na pasta. Na VPS: `sudo chown -R 1000:1000 backend/data` e depois `docker compose up -d` |
 | na VPS, o site não fala com a API | no `.env` da VPS, use `VITE_API_URL=http://IP-DA-VPS:8000/api/v1` e rode `docker compose up -d --build` |
 | quero recomeçar do zero (envios e compras) | `docker compose down`, apague os arquivos `historico.db*` e `antecipe_acid.db*` em `backend\data` e rode o Passo 3 |
-| reenviei um lote e tudo aparece como "já comprada" | é o esperado depois de **Contratar**; para repetir a demonstração, recomece do zero (linha acima) |
+| reenviei um lote e tudo aparece como "já comprada" | é o esperado depois de **Liquidar**; para repetir a demonstração, recomece do zero (linha acima) |

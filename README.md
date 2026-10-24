@@ -4,22 +4,145 @@ Plataforma de antecipação de recebíveis para o **ANTECIPE FIDC** (Hackathon A
 
 A empresa (cedente) envia um lote CSV de notas e recebe na hora quanto vai receber, quais notas foram aprovadas e, para cada recusa, uma explicação em português claro com o que fazer. O gestor do fundo liga, desliga e ajusta as regras de risco pela tela ou pela API, sem deploy, e revalida o lote em tempo real.
 
-> **Para testar o sistema, siga o [Guia de uso](GUIA_DE_USO.md)**: como subir, cada tela do site e o roteiro de teste.
+## Comece aqui: instalar e usar em 15 minutos
 
-## Subir tudo
+Este passo a passo foi escrito para quem **nunca usou Docker nem programação**. Siga na ordem e copie os comandos exatamente como estão.
 
-Com Docker (Windows, Mac ou a VPS Linux), na raiz do repositório:
+### O que você precisa
 
-```bash
-cp .env.example .env          # opcional; PowerShell: Copy-Item .env.example .env  (troque a ADMIN_API_KEY)
-docker compose up -d --build  # sobe mock-receita, backend e frontend; ~1 min na primeira vez
-docker compose ps             # backend e mock-receita devem ficar "healthy"
+- Computador com **Windows 10 ou 11 (64 bits)**, **Mac** ou **Linux**
+- **8 GB de memória** (recomendado) e uns **5 GB livres** no disco
+- **Internet** na primeira vez (para baixar o Docker e montar o sistema)
+
+### Passo 1: Instalar o Docker Desktop
+
+O Docker liga o sistema inteiro (site, servidor e banco de dados) com um único comando, sem instalar Python, Node ou banco à parte.
+
+**Windows**
+1. Entre em https://www.docker.com/products/docker-desktop/ e clique em **Download for Windows**.
+2. Abra o instalador e deixe marcada a opção **Use WSL 2** (ou "WSL 2 instead of Hyper-V"). Clique em **OK** até terminar.
+3. Se ele pedir para **reiniciar o computador**, reinicie.
+4. Abra o **Docker Desktop** pelo menu Iniciar, aceite os termos e pule o login (pode clicar em "Skip" ou "Continue without signing in").
+5. Espere aparecer **"Engine running"**, com a bolinha verde, no canto inferior esquerdo. Pronto.
+
+> Se aparecer um aviso sobre **WSL**, abra o PowerShell como administrador, rode `wsl --update`, reinicie e abra o Docker Desktop de novo.
+
+**Mac:** baixe em https://www.docker.com/products/docker-desktop/ escolhendo **Apple Silicon** (M1, M2, M3...) ou **Intel**, arraste para Aplicativos, abra e espere "Engine running".
+
+**Linux:** instale o Docker Engine e o plugin Compose seguindo https://docs.docker.com/engine/install/ e confira com `docker compose version`.
+
+### Passo 2: Baixar o projeto
+
+**Jeito mais fácil (sem Git):** entre em https://github.com/FrankTarga/KanaBootCamp, clique no botão verde **Code** e depois em **Download ZIP**. Extraia o ZIP na pasta **Documentos** e renomeie a pasta extraída para `KanaBootCamp`.
+
+**Com Git** (se já tiver instalado):
+```powershell
+cd $HOME\Documents
+git clone https://github.com/FrankTarga/KanaBootCamp.git
 ```
 
-- Front-end: http://localhost:5173
-- API: http://localhost:8000/api/v1 · docs interativas em http://localhost:8000/docs
-- O mock da Receita só fica acessível na rede interna do compose; a API o consulta em `http://mock-receita:8001`.
-- O login com senha precisa do `.env` com `BANCA_SENHA` e `CEDENTE_SENHA` (sem elas o usuário fica desativado: a senha antiga para de valer). Outras variáveis: `VITE_API_URL`, que **na VPS precisa ser** `http://<IP-ou-dominio>:8000/api/v1`, porque é a URL que o navegador do usuário usa; `ADMIN_API_KEY`, que sem ela deixa tudo funcionando e só o `PUT` das regras responde 403; e `SITUACAO_FONTE` (`gabarito`, o padrão, `kanastra` ou `formato`; ver *Situação cadastral*).
+### Passo 3: Abrir o terminal na pasta do projeto
+
+- **Windows:** abra o **PowerShell** (procure "PowerShell" no menu Iniciar) e digite:
+  ```powershell
+  cd $HOME\Documents\KanaBootCamp
+  ```
+- **Mac/Linux:** abra o **Terminal** e digite `cd ~/Documents/KanaBootCamp`
+
+### Passo 4: Criar o arquivo de configuração (`.env`)
+
+O sistema lê as senhas de um arquivo chamado `.env`. O projeto já traz um modelo pronto, o `.env.example`; basta copiá-lo com o nome `.env`. No terminal, dentro da pasta do projeto:
+
+- **Windows (PowerShell):**
+  ```powershell
+  Copy-Item .env.example .env
+  ```
+- **Mac/Linux (Terminal):**
+  ```bash
+  cp .env.example .env
+  ```
+
+Pronto: com esse arquivo, as contas de teste do Passo 6 já funcionam. Para conferir, `Get-Content .env` (Windows) ou `cat .env` (Mac/Linux) mostra as linhas.
+
+> Vai colocar o sistema na internet (VPS)? Antes de ligar, abra o `.env` (`notepad .env`) e troque todos os valores que começam com `troque-` por senhas suas.
+
+### Passo 5: Ligar o sistema
+
+Com o Docker Desktop aberto ("Engine running"):
+
+```powershell
+docker compose up -d --build
+```
+
+Na primeira vez leva **de 2 a 5 minutos** (ele baixa e monta tudo). No fim aparecem `antecipe-mock-receita Healthy`, `antecipe-backend Healthy` e `antecipe-frontend Started`. Para conferir a qualquer momento: `docker compose ps`.
+
+### Passo 6: Abrir o site e entrar
+
+Abra **http://localhost:5173** no navegador. Role a página inicial para baixo até a tela de login:
+
+| perfil (escolha na tela) | e-mail | senha | pode |
+|---|---|---|---|
+| **Empresa (cedente)** | `empresa@antecipe.com.br` | `troque-esta-senha` | enviar notas, ver resultados e contratar |
+| **Gestor do fundo** | `banca@antecipe.com.br` | `troque-esta-senha` | tudo isso e mudar as regras do fundo |
+
+**Chave do gestor** (pedida ao salvar regras): `troque-esta-chave`
+
+Esses são os valores do `.env.example`. Se a equipe trocou as senhas no `.env`, use as que estiverem lá.
+
+### Passo 7: Primeiro uso em 3 minutos
+
+1. Entre como **Empresa**.
+2. No menu lateral, clique em **Enviar notas** e arraste o arquivo `samples\01_lote_empresarial_padrao.csv` (está dentro da pasta do projeto) para a caixa.
+3. O **Resumo** aparece sozinho: **R$ 184.221,52** na conta hoje, 13 de 22 notas aprovadas.
+4. No cartão verde do valor líquido, clique em **Confirmar e Liquidar Lote Aprovado**: o fundo compra as 13 notas e aparece o **Comprovante de Liquidação** (estilo PIX/TED), com o valor liberado, o cedente, os títulos e o protocolo.
+5. Clique em **Ver no Histórico** (ou em **Histórico de Lotes** no menu): a operação aparece como **Liquidado**.
+6. Explore **Estatística**, **Análise de perda**, **Notas** e **Histórico** no menu lateral.
+
+### Para desligar e ligar de novo
+
+- Desligar: `docker compose down`
+- Ligar de novo (rápido, já está montado): `docker compose up -d`
+- Atualizar para a versão mais nova: baixe o projeto de novo (ou `git pull`) e rode `docker compose up -d --build`
+
+## Como usar cada parte do site
+
+| parte | para que serve | como usar |
+|---|---|---|
+| **Página inicial** | explica o sistema com um exemplo | role para baixo ou clique numa opção do menu de cima |
+| **Login** | identifica empresa ou gestor | escolha o perfil, digite a senha; vale por 8 horas, inclusive depois do F5. Sair: botão ao lado do nome, no pé do menu |
+| **Enviar notas** | manda as notas para análise | arraste uma pasta, um ou vários CSVs. "Notas para antecipar" é o uso normal; "Carteira do fundo" analisa o estoque inteiro (`backend\data\estoque_antecipe.csv`, ~10 s). Pode mudar data, taxa e ligar o Otimizar |
+| **Resumo** | quanto cai na conta hoje | extrato (enviado − recusado − custo = líquido), notas aprovadas, ganho do otimizador, alerta de fraude e o botão **Confirmar e Liquidar Lote Aprovado** |
+| **Liquidar** | a compra de verdade | "Confirmar e Liquidar Lote Aprovado" grava as notas aprovadas como compradas pelo fundo (transação ACID) e mostra o comprovante, que dá para imprimir. Reenviar a mesma nota depois aparece como "já comprada" |
+| **Estatística** | por que as notas foram recusadas | grupos que somam 100% (clique num grupo para ver as notas), liquidez, valor por problema e vencimentos |
+| **Análise de perda** | quanto custa esperar | digite um valor e escolha o prazo: mostra quanto recebe e quanto perde |
+| **Notas** | nota por nota | clique numa nota para ver o motivo e **Como resolver**; abas, busca e as planilhas **Baixar aprovadas** e **Relatório de recusas** |
+| **Histórico** | o que já foi analisado | procurar uma nota pelo número, abrir envios antigos ("Ver notas") e, para o gestor, as mudanças de regras |
+| **Histórico de Lotes** | simulações e liquidações gravadas no banco | totais (lotes, liquidados, volume), filtro por status e busca por cedente; **Comprovante** reabre o comprovante de cada liquidação. A empresa vê só os lotes dela |
+| **Regras do fundo** (gestor) | mudar o que o fundo aceita sem reiniciar | ligue/desligue regras, **Testar sem salvar** para ver o efeito, e **Salvar e recalcular** com a chave do gestor |
+| **Carregar lote demo** | ver as telas sem arquivo | números de exemplo, marcados como "Modo demonstração" |
+
+**Arquivos de teste** (pasta `samples`): `01` lote típico com vários tipos de recusa · `02` otimizador (+R$ 1.620.133,33) · `03` radar de fraude (3 notas já vendidas a outros fundos). O roteiro completo de teste, tela por tela, está no [Guia de uso](GUIA_DE_USO.md).
+
+## Problemas comuns
+
+| o que aparece | o que fazer |
+|---|---|
+| `docker` não é reconhecido como comando | o Docker Desktop não está instalado ou aberto. Abra-o e espere "Engine running"; feche e abra o PowerShell de novo |
+| erro sobre **WSL** ou virtualização ao abrir o Docker | PowerShell como administrador: `wsl --update`, reinicie. Se persistir, ative a virtualização na BIOS (procure o modelo do seu computador + "ativar virtualização") |
+| "Falha de conexão com a API" na tela de login | o sistema não está ligado. Rode `docker compose up -d` e confira com `docker compose ps` |
+| "E-mail ou senha incorretos" com a senha certa | o `.env` não foi criado (Passo 4), a senha é a de `BANCA_SENHA`/`CEDENTE_SENHA` do `.env`, ou o perfil escolhido não é o da conta. Corrija e rode `docker compose up -d --build` |
+| o site não abre em localhost:5173 | outra coisa usa a porta (por exemplo um `npm run dev`). Feche-a e rode o Passo 5 de novo |
+| o `backend` não fica "Healthy" | `docker compose logs backend --tail 40` mostra o motivo |
+| salvar regras dá erro de chave | digite em "Chave do gestor" o valor de `ADMIN_API_KEY` do `.env` (no modelo: `troque-esta-chave`) |
+| reenviei um lote e todas as notas aparecem como "já comprada" | é o esperado depois de **Liquidar**. Para recomeçar do zero, veja abaixo |
+| **recomeçar do zero** (apagar envios e compras) | `docker compose down`, apague os arquivos `historico.db*` e `antecipe_acid.db*` dentro de `backend\data` e rode `docker compose up -d` |
+| na VPS Linux, `unable to open database file` | `sudo chown -R 1000:1000 backend/data` e `docker compose up -d` |
+| na VPS, o site não fala com a API | no `.env`, `VITE_API_URL=http://IP-DA-VPS:8000/api/v1`, e `docker compose up -d --build` |
+
+Endereços úteis: site http://localhost:5173 · API http://localhost:8000/api/v1 · documentação interativa da API http://localhost:8000/docs
+
+<details>
+<summary><strong>Para desenvolvedores: rodar sem Docker</strong></summary>
 
 Sem Docker (PowerShell, Windows), um terminal por serviço:
 
@@ -89,9 +212,14 @@ tests/test_engine.py::test_hot_reload_validadores_sem_deploy PASSED      [100%]
 ============================== 5 passed in 0.10s ==============================
 ```
 
+</details>
+
 ## Como funciona por dentro (diagramas)
 
-**A memória e o banco trabalham juntos.** A validação acontece na memória RAM: o estoque de 100.554 notas é indexado uma vez, quando o servidor liga, e cada consulta (duplicidade, fraude, exposição por grupo) é O(1). O banco SQLite guarda o que precisa durar: usuários, cada envio com suas notas e motivos, e cada mudança de regra.
+**A memória e os bancos trabalham juntos.** A validação acontece na memória RAM: o estoque de 100.554 notas é indexado uma vez, quando o servidor liga, e cada consulta (duplicidade, fraude, exposição por grupo) é O(1). Dois arquivos SQLite guardam o que precisa durar:
+
+- `historico.db` (`historico.py`): usuários, cada envio com suas notas e motivos, e cada mudança de regra. É o que a tela **Histórico** mostra.
+- `antecipe_acid.db` (`database.py`): cada lote como **SIMULADO** e, ao **Liquidar** (botão "Confirmar e Liquidar Lote Aprovado"), a compra de verdade numa transação ACID (`BEGIN IMMEDIATE`). As notas compradas vão para `titulos_adquiridos`, com chave única que impede comprar a mesma nota duas vezes, e entram na memória na hora (write-through). Quando o servidor liga, elas são recarregadas para a memória.
 
 ```mermaid
 sequenceDiagram
@@ -103,11 +231,13 @@ sequenceDiagram
     participant RAM as Memória RAM, consulta O(1)<br/>estoque de 100.554 notas + regras
     participant Receita as Mock da Receita<br/>(situação cadastral)
     participant DB as SQLite (historico.db)<br/>lotes, notas, usuários, regras
+    participant ACID as SQLite (antecipe_acid.db)<br/>simulações e notas compradas
 
-    Note over API,DB: 1. Servidor liga
+    Note over API,ACID: 1. Servidor liga
     API->>RAM: lê estoque_antecipe.csv (~0,35 s) e indexa hashes e exposição por grupo
     API->>RAM: carrega validadores_antecipe.json (regras e taxa de 2% a.m.)
     API->>DB: aplica migrações e cria os usuários do .env (senha em hash scrypt)
+    ACID->>RAM: notas já compradas (titulos_adquiridos) entram no estoque em memória
 
     Note over Empresa,DB: 2. Login
     Empresa->>Front: e-mail e senha
@@ -122,22 +252,31 @@ sequenceDiagram
     API->>RAM: regras, limite por grupo (Shadow Ledger), duplicidade e fraude, otimizador
     API->>Receita: situação cadastral de cada cliente (com cache, sem resposta = recusa)
     API->>DB: grava lote, notas e motivos numa transação só
+    API->>ACID: guarda o resultado como SIMULADO (lotes_operacoes)
     API-->>Front: aprovadas, recusadas com o que fazer, valor líquido
     Front-->>Empresa: Resumo, Estatística, Notas e Análise de perda
 
-    Note over Gestor,DB: 4. Regras sem reiniciar
+    Note over Empresa,ACID: 4. Liquidar o lote (compra de verdade)
+    Empresa->>Front: Confirmar e Liquidar Lote Aprovado
+    Front->>API: POST /batches/{hash}/liquidate
+    API->>ACID: BEGIN IMMEDIATE, grava as aprovadas em titulos_adquiridos (chave única) e marca LIQUIDADO, COMMIT
+    API->>RAM: as notas compradas entram no estoque (write-through)
+    API-->>Front: comprovante de liquidação, e a mesma nota enviada de novo vira "já comprada"
+
+    Note over Gestor,DB: 5. Regras sem reiniciar
     Gestor->>Front: muda regras e digita a chave do gestor
     Front->>API: PUT /validators (X-API-Key)
     API->>RAM: valida, grava o JSON em disco e troca as regras (versão + 1)
     API->>DB: registra quem mudou e a configuração nova (mudancas_regras)
+    API->>ACID: auditoria com a configuração anterior e a nova (auditoria_regras)
 
-    Note over Empresa,DB: 5. Histórico
+    Note over Empresa,DB: 6. Histórico
     Front->>API: GET /historico/lotes, /lotes/{id}, /notas
     API->>DB: gestor vê todos os envios, a empresa só os dela
     API-->>Front: envios antigos, notas e busca por número da nota
 ```
 
-**Tabelas do banco** (`backend/data/historico.db`, criadas e migradas sozinhas pelo `historico.py`). A carteira de 100 mil notas guarda só o resumo em `lotes`; os lotes de notas guardam também cada nota e cada motivo.
+**Tabelas do `historico.db`** (criadas e migradas sozinhas pelo `historico.py`). A carteira de 100 mil notas guarda só o resumo em `lotes`; os lotes de notas guardam também cada nota e cada motivo.
 
 ```mermaid
 erDiagram
@@ -212,6 +351,64 @@ erDiagram
         INTEGER versao_config
         INTEGER regras_ativas
         TEXT config_json "configuração completa"
+    }
+```
+
+**Tabelas do `antecipe_acid.db`** (criadas pelo `database.py`). `documentos_notas_fiscais` já está pronta para a leitura de PDFs de notas fiscais (ver *Próximos passos*).
+
+```mermaid
+erDiagram
+    LOTES_OPERACOES ||--o{ TITULOS_ADQUIRIDOS : "notas compradas"
+    LOTES_OPERACOES ||--o{ DOCUMENTOS_NOTAS_FISCAIS : "PDFs do lote (preparado)"
+    DOCUMENTOS_NOTAS_FISCAIS |o--o{ TITULOS_ADQUIRIDOS : "origem da nota"
+
+    LOTES_OPERACOES {
+        TEXT batch_hash PK "impressão digital do arquivo"
+        TEXT status_operacao "SIMULADO, LIQUIDADO ou CANCELADO"
+        TEXT criado_em
+        TEXT liquidado_em
+        TEXT cedente_nome
+        TEXT cedente_doc
+        REAL taxa_mensal
+        INTEGER total_notas
+        INTEGER qtd_aprovadas
+        REAL valor_liquido_aprovado
+        REAL ganho_otimizador
+        TEXT origem_lote "CSV, PDF_LOTE ou API"
+        TEXT payload_resposta_json "resultado completo"
+    }
+
+    TITULOS_ADQUIRIDOS {
+        TEXT hash_titulo PK "única: a mesma nota não é comprada 2 vezes"
+        TEXT batch_hash FK
+        TEXT doc_cedente
+        TEXT doc_sacado
+        TEXT nu_documento
+        REAL valor_nominal
+        REAL desagio_reais
+        REAL valor_liquido
+        TEXT data_vencimento
+        TEXT adquirido_em
+        INTEGER documento_id FK
+    }
+
+    DOCUMENTOS_NOTAS_FISCAIS {
+        INTEGER id PK
+        TEXT batch_hash FK
+        TEXT hash_arquivo_sha256
+        TEXT tipo_documento "NFE, NFSE, CTE ou OUTRO"
+        TEXT chave_acesso "44 dígitos da NF-e"
+        TEXT metodo_extracao
+        TEXT status_processamento
+    }
+
+    AUDITORIA_REGRAS {
+        INTEGER id PK
+        TEXT criado_em
+        TEXT usuario_email "gestor que alterou"
+        TEXT acao
+        TEXT json_anterior
+        TEXT json_novo
     }
 ```
 
@@ -432,9 +629,14 @@ Os 3 CSVs em `samples/` já estão ajustados aos números do "Roteiro de demo" a
 
 **O que ficou de fora.**
 - Situação cadastral real: o kit não trouxe a fonte da organização, e a Receita real diverge dos CNPJs sintéticos do dataset. Usamos uma lista de referência extraída do gabarito (decisão do time).
-- Efetivar a compra: o sistema valida e precifica, mas não registra a cessão nem atualiza o estoque.
-- Usuários e perfis: o `PUT` das regras é protegido por uma chave única, sem login.
+- Liquidar registra a compra e atualiza o estoque em memória, mas não emite o termo de cessão nem faz o pagamento de verdade.
+- Perfis: login com dois perfis (empresa e gestor); o `PUT` das regras exige também a chave do gestor.
 - Escala horizontal: o estado fica em memória, então a API roda com 1 processo.
 - Feriados: a data-base D+1 útil considera só os fins de semana.
+
+**Próximos passos.**
+- **Ler notas fiscais em PDF.** Uma pasta de PDFs vira um lote no mesmo formato do CSV. Primeiro um caminho rápido e gratuito: ler o texto do DANFE (`pdfplumber`), achar a chave de acesso de 44 dígitos (conferida pelo dígito verificador) e o bloco *Fatura/Duplicatas*, porque uma NF-e pode virar várias duplicatas, cada uma com valor e vencimento. Antes de entrar no lote, cada nota é conferida: dígitos dos CNPJs, soma das duplicatas igual ao total e datas válidas; o que não passa vai para um relatório, em vez de gerar dado errado. PDFs escaneados e NFS-e (cada prefeitura com um layout) ficam para um segundo caminho com OCR ou modelo de visão, sempre com conferência humana antes de validar. A tabela `documentos_notas_fiscais` já existe no banco para guardar a origem de cada nota.
+- **Termo de cessão e pagamento** depois de liquidar.
+- **Feriados nacionais** no cálculo da data-base.
 
 Detalhes técnicos em [`docs/rfcs/0001-backend-antecipe-pro.md`](docs/rfcs/0001-backend-antecipe-pro.md).

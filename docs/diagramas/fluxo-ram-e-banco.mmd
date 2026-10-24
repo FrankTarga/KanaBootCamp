@@ -32,12 +32,12 @@ sequenceDiagram
     API-->>Front: aprovadas, recusadas com o que fazer, valor líquido
     Front-->>Empresa: Resumo, Estatística, Notas e Análise de perda
 
-    Note over Empresa,ACID: 4. Contratar a antecipação (compra de verdade)
-    Empresa->>Front: Contratar e Confirmar contratação
+    Note over Empresa,ACID: 4. Liquidar o lote (compra de verdade)
+    Empresa->>Front: Confirmar e Liquidar Lote Aprovado
     Front->>API: POST /batches/{hash}/liquidate
     API->>ACID: BEGIN IMMEDIATE, grava as aprovadas em titulos_adquiridos (chave única) e marca LIQUIDADO, COMMIT
     API->>RAM: as notas compradas entram no estoque (write-through)
-    API-->>Front: comprovante, e a mesma nota enviada de novo vira "já comprada"
+    API-->>Front: comprovante de liquidação, e a mesma nota enviada de novo vira "já comprada"
 
     Note over Gestor,DB: 5. Regras sem reiniciar
     Gestor->>Front: muda regras e digita a chave do gestor
