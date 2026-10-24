@@ -76,6 +76,7 @@ export default function App() {
   // Liquidação e Comprovante PIX/TED
   const [modalComprovante, setModalComprovante] = useState<ResultadoLiquidacao | null>(null);
   const [loteLiquidado, setLoteLiquidado] = useState<boolean>(false);
+  const [erroLiquidacao, setErroLiquidacao] = useState<string | null>(null);
   const [liquidando, setLiquidando] = useState<boolean>(false);
 
   // Tela atual vive no endereço (#resumo...), então voltar do navegador e links funcionam
@@ -186,6 +187,7 @@ export default function App() {
         });
         setResultado(res.dados);
         setLoteLiquidado(false);
+        setErroLiquidacao(null);
         setFonteDados(res.fonte);
         setReplayIdempotente(res.replayIdempotente);
         if (override) {
@@ -222,6 +224,7 @@ export default function App() {
     setComparativoRegras(null);
     setMotivoFiltroAtivo(null);
     setLoteLiquidado(false);
+    setErroLiquidacao(null);
     processarLote(null, undefined, false, "resumo");
   };
 
@@ -229,13 +232,13 @@ export default function App() {
     if (!resultado) return;
     const batchHash = resultado.meta.batch_hash_idempotencia;
     setLiquidando(true);
-    setErroGeral(null);
+    setErroLiquidacao(null);
     try {
       const res = await liquidarLote(batchHash);
       setLoteLiquidado(true);
       setModalComprovante(res);
     } catch (err: unknown) {
-      setErroGeral(err instanceof Error ? err.message : "Falha ao liquidar lote.");
+      setErroLiquidacao(err instanceof Error ? err.message : "Falha ao liquidar lote.");
     } finally {
       setLiquidando(false);
     }
@@ -347,6 +350,7 @@ export default function App() {
             }}
             liquidando={liquidando}
             loteLiquidado={loteLiquidado}
+            erroLiquidacao={erroLiquidacao}
           />
         )}
 

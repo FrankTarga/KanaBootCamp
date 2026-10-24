@@ -14,6 +14,7 @@ interface TelaResumoProps {
   onVerComprovante?: () => void;
   liquidando?: boolean;
   loteLiquidado?: boolean;
+  erroLiquidacao?: string | null;
 }
 
 export function Cabecalho({ titulo, sub }: { titulo: string; sub: string }) {
@@ -51,6 +52,7 @@ export function TelaResumo({
   onVerComprovante,
   liquidando = false,
   loteLiquidado = false,
+  erroLiquidacao = null,
 }: TelaResumoProps) {
   const pctAprov = resumo.total_notas ? resumo.qtd_aprovadas / resumo.total_notas : 0;
   const dia = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
@@ -122,6 +124,11 @@ export function TelaResumo({
                     </>
                   )}
                 </button>
+              )}
+              {erroLiquidacao && !loteLiquidado && (
+                <p role="alert" className="mt-2 flex items-start gap-2 rounded-lg bg-rose-500/20 px-3 py-2 text-xs text-rose-100">
+                  <AlertTriangle className="h-4 w-4 shrink-0" /> {erroLiquidacao}
+                </p>
               )}
             </div>
           </div>
